@@ -1,0 +1,152 @@
+# =============================================
+# FlashBuy — .gitignore
+# Stack: Go / React+TS / Terraform / Docker
+# IDE: VSCode / GoLand (JetBrains)
+# =============================================
+
+# ===== OS =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===== VSCode =====
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# ===== GoLand / JetBrains =====
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# ===== Go =====
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+api/bin/
+
+# Test artifacts
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go build cache (local only)
+api/vendor/
+
+# Air (live reload)
+api/tmp/
+
+# ===== Node.js / Frontend =====
+node_modules/
+.pnp
+.pnp.js
+.pnp.cjs
+
+# Build output
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# TypeScript cache
+*.tsbuildinfo
+
+# ===== Terraform =====
+# Local .terraform directory
+**/.terraform/*
+.terraform/
+# NOTE: .terraform.lock.hcl should be committed (like pnpm-lock.yaml)
+
+# Terraform state (NEVER commit state files)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+
+# Terraform variable files with secrets
+*.tfvars
+*.tfvars.json
+!example.tfvars
+!terraform.tfvars.example
+
+# Terraform plan files
+*.tfplan
+*.tfplan.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ===== Docker =====
+# Don't ignore Dockerfile or docker-compose.yml
+# But ignore any local override files
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ===== AWS / Credentials (CRITICAL — never commit) =====
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+aws-exports.js
+
+# ===== Secrets / Env =====
+.env
+.env.*
+!.env.example
+secrets/
+*.secret
+config.local.*
+config.prod.*
+
+# ===== Lambda build artifacts =====
+lambdas/*/bootstrap
+lambdas/*/*.zip
+lambdas/*/bin/
+
+# ===== Logs =====
+logs/
+*.log
+*.log.*
+
+# ===== Test / Coverage =====
+coverage/
+.nyc_output/
+test-results/
+junit.xml
+
+# ===== Misc =====
+*.swp
+*.swo
+*~
+.cache/
+.temp/
+.tmp/

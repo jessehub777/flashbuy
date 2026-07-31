@@ -1,0 +1,54 @@
+name: Frontend CI
+
+# トリガー条件：develop / main ブランチへの push 及び PR 時
+on:
+  push:
+    branches: [ develop, main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    branches: [ develop, main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # デフォルトの作業ディレクトリを frontend に設定
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      # 1. リポジトリのコードをチェックアウト
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. pnpm のセットアップ（バージョン固定）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11
+
+      # 3. Node.js のセットアップおよびキャッシュの有効化
+      - name: Setup Node.js & Enable Cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 开启缓存，第一次 CI 时把依赖文件缓存到 GitHub 的云存储里
+          cache: 'pnpm'
+          # 后续再跑 CI 时新启动的虚拟机发现 pnpm-lock.yaml 没变，就会直接解压 GitHub 云存储里的压缩包
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # 4. 依存パッケージのインストール（lockファイルに厳密に従う）
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 5. 型チェックおよびビルド実行
+      - name: Build and Type Check
+        run: pnpm build
+
+

@@ -1,104 +1,122 @@
-// Type definitions for FlashBuy frontend
+export type FlashOrderStatus = 'WAITING' | 'PAID' | 'CANCELLED' | 'TIMEOUT'
 
-export type SaleType = 'flash' | 'lottery';
+export type LotteryOrderStatus = 'WAITING' | 'WON' | 'LOST' | 'PAID' | 'EXPIRED';
 
-export type OrderStatus = 'PENDING' | 'PAID' | 'CANCELLED' | 'TIMEOUT';
+export type LotteryStatus = 'UPCOMING' | 'ACTIVE' | 'DRAWING' | 'DRAWN' | 'ENDED'
 
-export type LotteryStatus = 'OPEN' | 'DRAWING' | 'DRAWN' | 'CLOSED';
+export type FlashStatus = 'UPCOMING' | 'ACTIVE' | 'SOLD_OUT' | 'ENDED'
 
-export type FlashSaleStatus = 'UPCOMING' | 'ACTIVE' | 'ENDED' | 'SOLD_OUT';
+// ===== FlashItem / LotteryItem =====
 
-// ===== Product / Sale models =====
-
-export interface FlashSaleItem {
-  id: string;
-  serialNo: string;         // e.g. "No. 00214"
-  name: string;
-  description: string;
-  imageUrl: string;
-  price: number;            // in JPY
-  stock: number;
-  totalStock: number;
-  status: FlashSaleStatus;
-  startsAt: string;         // ISO datetime
-  endsAt: string;
-  category: string;
+export interface FlashItem {
+  id: string
+  name: string
+  description: string
+  imageUrl: string
+  price: number // in JPY
+  stock: number
+  totalStock: number
+  status: FlashStatus
+  startsAt: string // ISO datetime
+  endsAt: string
+  category: string
+  viewCount: number // ページの閲覧数（人気度の指標）
+  // S3静的ストレージ標準詳細属性 (全商品共通固定)
+  specifications?: { label: string; value: string }[] // 商品スペック (型番, カラー, 発送時期等)
+  rules?: string[] // 注意事項・購入規約リスト
 }
 
 export interface LotteryItem {
-  id: string;
-  serialNo: string;         // e.g. "LOT. 00089"
-  name: string;
-  description: string;
-  imageUrl: string;
-  price: number;            // in JPY, 0 = 応募無料
-  winnerCount: number;
-  applicantCount: number;
-  status: LotteryStatus;
-  applyDeadline: string;    // ISO datetime
-  drawAt: string;
-  category: string;
+  id: string
+  name: string
+  description: string
+  imageUrl: string
+  price: number // in JPY, 0 = 応募無料
+  winnerCount: number
+  applyCount: number
+  status: LotteryStatus
+  startsAt: string // ISO datetime — 応募開始日時（これより前は UPCOMING）
+  applyDeadline: string // ISO datetime — 応募締切日時
+  drawAt: string // ISO datetime — 抽選実施日時
+  category: string
+  viewCount: number // ページの閲覧数（人気度の指標）
+  // S3静的ストレージ標準詳細属性 (全商品共通固定)
+  specifications?: { label: string; value: string }[] // 商品スペック (型番, カラー, 発送時期等)
+  rules?: string[] // 注意事項・応募規約リスト
 }
 
-// ===== Order & Application models =====
+// ===== FlashOrderItem / LotteryOrderItem =====
 
-export interface FlashSaleOrderItem {
-  id: string;
-  orderNo: string;
-  saleId: string;
-  saleName: string;
-  price: number;
-  status: OrderStatus;
-  createdAt: string;
-  paidAt?: string;
+export interface FlashOrderItem {
+  id: string
+  orderNo: string
+  saleId: string
+  saleName: string
+  price: number
+  status: FlashOrderStatus
+  createdAt: string
+  paidAt?: string
 }
 
-export interface LotteryApplicationItem {
-  id: string;
-  lotteryId: string;
-  lotteryName: string;
-  appliedAt: string;
-  result: 'PENDING' | 'WON' | 'LOST';
-  payDeadline?: string;
-  payStatus?: 'UNPAID' | 'PAID' | 'EXPIRED';
+export interface LotteryOrderItem {
+  id: string
+  lotteryId: string
+  lotteryName: string
+  appliedAt: string
+  status: LotteryOrderStatus
+  payDeadline?: string
+  price?: number
 }
 
 // ===== Auth =====
 
 export interface User {
-  id: string;
-  email: string;
-  displayName: string;
-  avatarUrl?: string;
-  role: 'user' | 'admin';
+  id: string
+  email: string
+  displayName: string
+  role: 'user' | 'admin'
 }
 
 // ===== API response wrappers =====
 
 export interface ApiResponse<T> {
-  data: T;
-  message?: string;
+  data: T
+  message?: string
 }
 
 export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
+  data: T[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 // ===== Mock payment =====
 
-export type PaymentMethod = 'credit_card' | 'convenience' | 'bank_transfer';
+export type PaymentMethod = 'credit_card' | 'convenience' | 'bank_transfer'
 
 export interface MockPaymentPayload {
-  orderId: string;
-  amount: number;
-  method: PaymentMethod;
+  orderId: string
+  amount: number
+  method: PaymentMethod
 }
 
 export interface MockPaymentResult {
-  success: boolean;
-  transactionId: string;
-  paidAt: string;
+  success: boolean
+  transactionId: string
+  paidAt: string
+}
+
+// ===== 検索結果 =====
+
+export interface SearchResult {
+  flashList: FlashItem[]
+  lotteryList: LotteryItem[]
+}
+
+// ===== 首页人气特集 =====
+
+export interface HomeFeatured {
+  flashList: FlashItem[] // 人気Top10
+  lotteryList: LotteryItem[] // 人気Top10
 }

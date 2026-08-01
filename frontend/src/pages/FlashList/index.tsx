@@ -1,0 +1,200 @@
+// フラッシュセール一覧ページ — /flash ルート（平铺グリッド表示・カテゴリ絞り込み・人気順ソート機能）
+import { useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { FlashTicket } from '../../components/TicketCard'
+import { api } from '../../services/api'
+
+type SortOption = 'popular' | 'price_asc' | 'price_desc' | 'stock_low'
+
+export default function FlashList() {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
+  const [sortBy, setSortBy] = useState<SortOption>('popular')
+
+  // セール一覧データを取得する
+  const { data: flashList = [], isLoading } = useQuery({
+    queryKey: ['flashList'],
+    queryFn: api.getFlashList,
+    refetchInterval: 15000,
+  })
+
+  // 全カテゴリのリストを抽出する
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    flashList.forEach((s) => {
+      if (s.category) set.add(s.category)
+    })
+    return Array.from(set)
+  }, [flashList])
+
+  // 検索・カテゴリ・ソート条件でフィルタリングする
+  const filtered = useMemo(() => {
+    let result = [...flashList]
+
+    // 検索キーワードで絞り込む
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.category.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q),
+      )
+    }
+
+    // カテゴリで絞り込む
+    if (selectedCategory !== 'ALL') {
+      result = result.filter((s) => s.category === selectedCategory)
+    }
+
+    // 並び替え（人気順・価格順・在庫順）
+    result.sort((a, b) => {
+      if (sortBy === 'popular') return b.viewCount - a.viewCount // 閲覧数が多い順
+      if (sortBy === 'price_asc') return a.price - b.price // 価格が安い順
+      if (sortBy === 'price_desc') return b.price - a.price // 価格が高い順
+      if (sortBy === 'stock_low') return a.stock - b.stock // 在庫が少ない順
+      return 0
+    })
+
+    return result
+  }, [flashList, searchQuery, selectedCategory, sortBy])
+
+  return (
+    <div className="min-h-screen page-enter">
+      {/* ページヘッダー（抽選一覧とデザインを統一） */}
+      <section className="px-10 pt-12 pb-10 border-b border-white/[0.12] bg-gradient-to-b from-flash/[0.05] to-transparent max-sm:px-5 max-sm:pt-8 max-sm:pb-7">
+        <div className="font-mono text-[11px] text-flash tracking-[2px] uppercase mb-3">● FLASH SALE</div>
+        <h1 className="font-oswald font-semibold text-[48px] leading-[1.05] tracking-[-0.5px] mb-3 max-sm:text-[32px]">
+          フラッシュセール一覧
+        </h1>
+        <p className="text-muted text-[14px] max-w-[540px]">
+          在庫がなくなり次第終了。早い者勝ちの限定販売チケット・アイテム。
+        </p>
+      </section>
+
+      {/* フィルター・検索・ソートコントロールバー */}
+      <div className="px-10 pt-8 pb-6 max-sm:px-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          {/* 検索入力フォーム */}
+          <div className="flex gap-2 items-center max-w-[400px] w-full">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="キーワードで検索..."
+              className="input-dark flex-1 text-[13px]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="font-mono text-[11px] text-muted hover:text-paper transition-colors whitespace-nowrap">
+                クリア
+              </button>
+            )}
+          </div>
+
+          {/* ソート順選択ドロップダウン */}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11px] text-muted whitespace-nowrap">並び替え:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortOption)}
+              className="input-dark py-2 text-[12px] cursor-pointer">
+              <option value="popular">🔥 人気順（閲覧数順）</option>
+              <option value="price_asc">¥ 価格が安い順</option>
+              <option value="price_desc">¥ 価格が高い順</option>
+              <option value="stock_low">⚠ 在庫が少ない順</option>
+            </select>
+          </div>
+        </div>
+
+        {/* カテゴリフィルタータブ */}
+        <div className="flex gap-2 flex-wrap items-center border-b border-white/[0.08] pb-4">
+          <button
+            onClick={() => setSelectedCategory('ALL')}
+            className={`px-3 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.5px] transition-all ${
+              selectedCategory === 'ALL' ?
+                'bg-flash text-paper font-semibold'
+              : 'bg-white/[0.04] text-muted hover:text-paper'
+            }`}>
+            すべて件数 ({flashList.length})
+          </button>
+          {categories.map((cat) => {
+            const count = flashList.filter((s) => s.category === cat).length
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 rounded-[3px] font-mono text-[11px] tracking-[0.5px] transition-all ${
+                  selectedCategory === cat ?
+                    'bg-flash text-paper font-semibold'
+                  : 'bg-white/[0.04] text-muted hover:text-paper'
+                }`}>
+                {cat} ({count})
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* 商品平铺（グリッド）表示エリア */}
+      <div className="px-10 pb-12 max-sm:px-5">
+        <div className="flex items-baseline gap-[14px] mb-6">
+          <h2 className="font-oswald font-semibold text-[20px] tracking-[0.5px] text-flash">
+            {selectedCategory === 'ALL' ? '全セール一覧' : selectedCategory}
+          </h2>
+          {!isLoading && <span className="font-mono text-[12px] text-muted">{filtered.length} 件該当</span>}
+        </div>
+
+        {isLoading ?
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
+        : filtered.length === 0 ?
+          <EmptyState query={searchQuery} />
+        : <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+            {filtered.map((sale) => (
+              <FlashTicket key={sale.id} sale={sale} />
+            ))}
+          </div>
+        }
+      </div>
+
+      {/* トップへ戻る */}
+      <div className="px-10 pb-16 max-sm:px-5">
+        <Link
+          to="/"
+          className="font-mono text-[12px] text-muted hover:text-paper transition-colors tracking-[1px] no-underline">
+          ← トップページへ戻る
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function SkeletonCard() {
+  return (
+    <div className="w-full bg-ink-soft rounded-[6px] overflow-hidden border-t-4 border-flash/40 animate-pulse">
+      <div className="h-[160px] bg-white/[0.04]" />
+      <div className="p-5">
+        <div className="h-4 bg-white/[0.06] rounded mb-2 w-3/4" />
+        <div className="h-6 bg-white/[0.06] rounded mb-3 w-1/2" />
+        <div className="h-9 bg-white/[0.06] rounded" />
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ query }: { query: string }) {
+  return (
+    <div className="py-24 text-center">
+      <div className="font-oswald font-bold text-[60px] text-white/[0.04] mb-4">NO SALES</div>
+      <p className="font-mono text-[13px] text-muted tracking-[1px]">
+        {query ? `「${query}」に一致するセールが見つかりませんでした` : '現在該当するセールはありません'}
+      </p>
+    </div>
+  )
+}

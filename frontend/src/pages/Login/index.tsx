@@ -1,14 +1,18 @@
-// Login page — mock authentication (Cognito mock)
+// ログインページ — Mock 認証（本番は Amazon Cognito を使う）
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, isLoading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  // ログイン前にいたページを覚えておく
+  const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,7 +20,8 @@ export default function Login() {
     if (!email || !password) { setError('メールアドレスとパスワードを入力してください'); return; }
     try {
       await login(email, password);
-      navigate('/');
+      // ログイン成功したら元のページに戻る
+      navigate(from, { replace: true });
     } catch {
       setError('ログインに失敗しました。もう一度お試しください。');
     }
@@ -31,7 +36,7 @@ export default function Login() {
   return (
     <div className="min-h-[calc(100vh-130px)] flex items-center justify-center px-4 page-enter">
       <div className="w-full max-w-[400px]">
-        {/* Logo */}
+        {/* ロゴ */}
         <div className="text-center mb-10">
           <Link to="/" className="font-oswald font-bold text-[28px] text-paper no-underline">
             FLASH<span className="text-flash">BUY</span>
@@ -41,7 +46,7 @@ export default function Login() {
           </p>
         </div>
 
-        {/* Demo shortcuts */}
+        {/* デモ用ショートカット */}
         <div className="flex gap-2 mb-6">
           <button
             onClick={() => handleDemoLogin('user')}
@@ -57,7 +62,7 @@ export default function Login() {
           </button>
         </div>
 
-        {/* Form */}
+        {/* フォーム */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1.5">
@@ -102,7 +107,7 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Notes */}
+        {/* 注意書き */}
         <div className="mt-6 p-4 bg-ink-soft border border-white/[0.08] rounded-[4px]">
           <p className="font-mono text-[10px] text-muted tracking-[0.5px] leading-[1.8]">
             [DEMO] このログインはMock実装です。<br />

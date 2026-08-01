@@ -1,48 +1,42 @@
 // PaymentMockModal — mock payment flow
-// Demonstrates understanding of payment state machine: PENDING → PAID / TIMEOUT
+// Demonstrates understanding of payment state machine: WAITING → PAID / TIMEOUT
 // NOT connected to any real payment API (portfolio demo only)
-import { useState } from 'react';
-import { useOrderStore } from '../stores/orderStore';
-import type { PaymentMethod } from '../types';
+import { useState } from 'react'
+import { useOrderStore } from '../stores/orderStore'
+import type { PaymentMethod } from '../types'
 
 interface PaymentMockModalProps {
-  orderId: string;
-  orderNo: string;
-  amount: number;
-  onClose: () => void;
-  onSuccess: () => void;
+  orderId: string
+  orderNo: string
+  amount: number
+  onClose: () => void
+  onSuccess: () => void
 }
 
 const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
   { id: 'credit_card', label: 'クレジットカード', icon: '💳' },
   { id: 'convenience', label: 'コンビニ払い', icon: '🏪' },
   { id: 'bank_transfer', label: '銀行振込', icon: '🏦' },
-];
+]
 
-export default function PaymentMockModal({
-  orderId,
-  orderNo,
-  amount,
-  onClose,
-  onSuccess,
-}: PaymentMockModalProps) {
-  const { payOrder, payStatus, resetPayStatus } = useOrderStore();
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('credit_card');
+export default function PaymentMockModal({ orderId, orderNo, amount, onClose, onSuccess }: PaymentMockModalProps) {
+  const { payOrder, payStatus, resetPayStatus } = useOrderStore()
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('credit_card')
 
   const handlePay = async () => {
-    const ok = await payOrder(orderId, amount, selectedMethod);
+    const ok = await payOrder(orderId, amount, selectedMethod)
     if (ok) {
       setTimeout(() => {
-        resetPayStatus();
-        onSuccess();
-      }, 1500);
+        resetPayStatus()
+        onSuccess()
+      }, 1500)
     }
-  };
+  }
 
   const handleClose = () => {
-    resetPayStatus();
-    onClose();
-  };
+    resetPayStatus()
+    onClose()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop bg-black/70 animate-fade-in">
@@ -50,9 +44,7 @@ export default function PaymentMockModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.12]">
           <div>
-            <span className="font-oswald font-semibold text-[16px] tracking-[0.5px]">
-              お支払い
-            </span>
+            <span className="font-oswald font-semibold text-[16px] tracking-[0.5px]">お支払い</span>
             <span className="ml-3 font-mono text-[10px] text-muted tracking-[1px]">
               [MOCK — 実際の課金は発生しません]
             </span>
@@ -69,36 +61,27 @@ export default function PaymentMockModal({
           <div className="bg-ink border border-white/[0.08] rounded-[4px] p-4 mb-5">
             <div className="flex justify-between items-center">
               <div>
-                <div className="font-mono text-[10px] text-muted tracking-[1.5px] mb-1">
-                  ORDER: {orderNo}
-                </div>
-                <div className="font-mono text-[10px] text-muted tracking-[1px]">
-                  STATUS: PENDING
-                </div>
+                <div className="font-mono text-[10px] text-muted tracking-[1.5px] mb-1">ORDER: {orderNo}</div>
+                <div className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: WAITING</div>
               </div>
-              <div className="font-oswald font-bold text-[28px] text-flash">
-                ¥{amount.toLocaleString()}
-              </div>
+              <div className="font-oswald font-bold text-[28px] text-flash">¥{amount.toLocaleString()}</div>
             </div>
           </div>
 
           {/* Payment method selector */}
           {payStatus === 'idle' && (
             <>
-              <p className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase mb-3">
-                お支払い方法
-              </p>
+              <p className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase mb-3">お支払い方法</p>
               <div className="flex flex-col gap-2 mb-6">
                 {PAYMENT_METHODS.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => setSelectedMethod(m.id)}
                     className={`flex items-center gap-3 px-4 py-3 rounded-[4px] border text-left transition-colors ${
-                      selectedMethod === m.id
-                        ? 'border-flash bg-flash/10 text-paper'
-                        : 'border-white/[0.12] text-muted hover:border-white/25'
-                    }`}
-                  >
+                      selectedMethod === m.id ?
+                        'border-flash bg-flash/10 text-paper'
+                      : 'border-white/[0.12] text-muted hover:border-white/25'
+                    }`}>
                     <span className="text-[18px]">{m.icon}</span>
                     <span className="text-[14px]">{m.label}</span>
                     {selectedMethod === m.id && (
@@ -117,7 +100,12 @@ export default function PaymentMockModal({
               {/* Credit card mock form */}
               {selectedMethod === 'credit_card' && (
                 <div className="mb-5 flex flex-col gap-3">
-                  <input className="input-dark" placeholder="カード番号 **** **** **** ****" defaultValue="4242 4242 4242 4242" readOnly />
+                  <input
+                    className="input-dark"
+                    placeholder="カード番号 **** **** **** ****"
+                    defaultValue="4242 4242 4242 4242"
+                    readOnly
+                  />
                   <div className="flex gap-3">
                     <input className="input-dark" placeholder="MM/YY" defaultValue="12/28" readOnly />
                     <input className="input-dark" placeholder="CVV" defaultValue="123" readOnly />
@@ -141,12 +129,8 @@ export default function PaymentMockModal({
           {payStatus === 'processing' && (
             <div className="text-center py-8">
               <div className="w-10 h-10 border-2 border-white/[0.12] border-t-flash rounded-full animate-spin mx-auto mb-4" />
-              <p className="font-mono text-[12px] text-muted tracking-[1px]">
-                決済処理中...
-              </p>
-              <p className="font-mono text-[10px] text-muted mt-1 tracking-[0.5px]">
-                STATUS: PENDING → PROCESSING
-              </p>
+              <p className="font-mono text-[12px] text-muted tracking-[1px]">決済処理中...</p>
+              <p className="font-mono text-[10px] text-muted mt-1 tracking-[0.5px]">STATUS: WAITING → PROCESSING</p>
             </div>
           )}
 
@@ -159,9 +143,7 @@ export default function PaymentMockModal({
                 </svg>
               </div>
               <p className="text-paper font-semibold mb-1">お支払い完了！</p>
-              <p className="font-mono text-[10px] text-muted tracking-[1px]">
-                STATUS: PAID ✓
-              </p>
+              <p className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: PAID ✓</p>
             </div>
           )}
 
@@ -178,5 +160,5 @@ export default function PaymentMockModal({
         </div>
       </div>
     </div>
-  );
+  )
 }

@@ -6,7 +6,7 @@ import { api } from '../services/api'
 interface OrderState {
   // Flash orders
   orders: FlashOrderItem[]
-  WAITINGOrderNo: string | null
+  unpaidOrderNo: string | null
   buyStatus: 'idle' | 'queuing' | 'queued' | 'sold_out' | 'error'
 
   // Lottery applications
@@ -31,7 +31,7 @@ interface OrderState {
 
 export const useOrderStore = create<OrderState>((set, get) => ({
   orders: [],
-  WAITINGOrderNo: null,
+  unpaidOrderNo: null,
   buyStatus: 'idle',
   applications: [],
   applyStatus: 'idle',
@@ -39,11 +39,11 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   payStatus: 'idle',
 
   flashBuy: async (saleId) => {
-    set({ buyStatus: 'queuing', WAITINGOrderNo: null })
+    set({ buyStatus: 'queuing', unpaidOrderNo: null })
     try {
       const result = await api.flashBuy(saleId)
       if (result.status === 'QUEUED') {
-        set({ buyStatus: 'queued', WAITINGOrderNo: result.orderNo })
+        set({ buyStatus: 'queued', unpaidOrderNo: result.orderNo })
         // Simulate async order confirmation (Lambda worker)
         setTimeout(() => {
           set((s) => ({
@@ -54,7 +54,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
                 saleId,
                 saleName: '',
                 price: 0,
-                status: 'WAITING' as FlashOrderStatus,
+                status: 'UNPAID' as FlashOrderStatus,
                 createdAt: new Date().toISOString(),
               },
               ...s.orders,
@@ -96,7 +96,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
           orders: s.orders.map((o) =>
             o.id === orderId ? { ...o, status: 'PAID' as FlashOrderStatus, paidAt: result.paidAt } : o,
           ),
-          applications: s.applications.map((a) => (a.id === orderId ? { ...a, payStatus: 'PAID' } : a)),
+          applications: s.applications.map((a) => (a.id === orderId ? { ...a, status: 'PAID' } : a)),
         }))
         return true
       } else {
@@ -119,7 +119,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ applications })
   },
 
-  resetBuyStatus: () => set({ buyStatus: 'idle', WAITINGOrderNo: null }),
+  resetBuyStatus: () => set({ buyStatus: 'idle', unpaidOrderNo: null }),
   resetApplyStatus: () => set({ applyStatus: 'idle' }),
   resetPayStatus: () => set({ payStatus: 'idle' }),
   isApplied: (lotteryId) => get().appliedIds.has(lotteryId),

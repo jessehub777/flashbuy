@@ -12,8 +12,8 @@ export default function Home() {
 
   // ホーム画面専用の「人気Top10」取得APIを呼び出す
   const { data: featuredData, isLoading } = useQuery({
-    queryKey: ['homeFeatured'],
-    queryFn: api.getHomeFeatured,
+    queryKey: ['HomeTop10'],
+    queryFn: api.getHomeTop10,
     refetchInterval: 15000, // 閲覧数や在庫の更新を反映する
   })
 

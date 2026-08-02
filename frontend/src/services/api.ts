@@ -12,7 +12,7 @@ import type {
   LotteryStatus,
   MockPaymentPayload,
   MockPaymentResult,
-  HomeFeatured,
+  HomeTop10,
 } from '../types'
 
 // 少し待ってからデータを返す（ネットワーク遅延を再現する）
@@ -37,9 +37,8 @@ export function computeLotteryStatus(item: LotteryItem): LotteryStatus {
   const n = dayjs()
   // 応募開始前は UPCOMING
   if (n.isBefore(dayjs(item.startsAt))) return 'UPCOMING'
-  // 抽選日から7日以上経過したら終了扱い
-  if (n.isAfter(dayjs(item.drawAt).add(7, 'day'))) return 'ENDED'
-  if (n.isAfter(dayjs(item.drawAt))) return 'DRAWN'
+  // 抽選日以降は ENDED (DRAWNは廃止しENDEDに一元化)
+  if (n.isAfter(dayjs(item.drawAt))) return 'ENDED'
   if (n.isAfter(dayjs(item.applyDeadline))) return 'DRAWING'
   return 'ACTIVE'
 }
@@ -50,7 +49,7 @@ export function computeLotteryStatus(item: LotteryItem): LotteryStatus {
 const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = [
   // ── ACTIVE（販売中）12件 ──
   {
-    id: 'fs-001',
+    id: 'fl-001',
     name: '銀河少年団 復活コンサート — 東京ドーム 2026 アリーナ席',
     description:
       '伝説の5人組グループ「銀河少年団」が6年ぶりに復活！東京ドーム公演のアリーナA席チケット。転売禁止・本人確認あり。1アカウント1枚限り。',
@@ -76,7 +75,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     ],
   },
   {
-    id: 'fs-002',
+    id: 'fl-002',
     name: 'ソラリス24 全国握手会 参加券 幕張会場',
     description:
       '人気アイドルグループ「ソラリス24」最新シングル発売記念の全国握手会参加券。各メンバー1回握手できます。会場は幕張メッセ。チケットは電子入場証。',
@@ -90,7 +89,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'アイドル・握手会',
   },
   {
-    id: 'fs-003',
+    id: 'fl-003',
     name: 'Jリーグ チャンピオンシップ決勝 ゴール裏SS席',
     description: '2026 Jリーグチャンピオンシップ決勝のゴール裏SS席チケット。試合前の入場セレモニーも間近で見られます。',
     imageUrl: '',
@@ -103,7 +102,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'スポーツ観戦',
   },
   {
-    id: 'fs-004',
+    id: 'fl-004',
     name: '映画「炎獄の守護者」最終章 特別試写会 招待状',
     description:
       '大人気アニメ映画「炎獄の守護者」最終章の一般公開2日前の特別試写会招待状。監督・主要声優登壇の舞台挨拶あり。来場特典クリアファイル付き。',
@@ -117,7 +116,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: '映画・試写会',
   },
   {
-    id: 'fs-005',
+    id: 'fl-005',
     name: 'VELO × ZUKI コラボスニーカー 限定モデル (26.5cm)',
     description: '国内300足限定のVELO × ZUKIコラボモデル。正規品保証・専用シリアルナンバー刻印入り。単一SKU限定販売。',
     imageUrl: '',
@@ -144,7 +143,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     ],
   },
   {
-    id: 'fs-006',
+    id: 'fl-006',
     name: 'CoreBox 5 Pro ソフト3本同梱版',
     description: '数量限定のCoreBox 5 Pro同梱版。最新タイトル3本付属。メーカー1年保証。転売防止のため本人確認必須。',
     imageUrl: '',
@@ -157,7 +156,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'ゲーム機',
   },
   {
-    id: 'fs-007',
+    id: 'fl-007',
     name: '東京ゲームフェスト 2026 一般優先入場券',
     description:
       '一般公開日より1時間早く入場できる優先券。限定グッズ交換券付き。幕張メッセ全館入場可。会場混雑時も優先レーン使用可。',
@@ -171,7 +170,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'ゲームイベント',
   },
   {
-    id: 'fs-008',
+    id: 'fl-008',
     name: '月影歌劇団 風組公演 東京大劇場 SS席',
     description: '月影歌劇団 風組の東京大劇場SS席。舞台に最も近い特等席。公演後の出待ちエリアへのアクセスあり。',
     imageUrl: '',
@@ -184,7 +183,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: '舞台・ミュージカル',
   },
   {
-    id: 'fs-009',
+    id: 'fl-009',
     name: '創作大祭 2026 秋 一般参加 整理券（午前）',
     description:
       '同人誌即売会「創作大祭」秋大会の一般参加整理券（午前の部）。整理番号順に入場。東京ビッグサイト東展示棟。',
@@ -198,7 +197,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: '同人誌・アニメイベント',
   },
   {
-    id: 'fs-010',
+    id: 'fl-010',
     name: 'RunBase 574 × BLOC Tokyo 限定コラボ',
     description:
       'BLOC Tokyo限定カラーのRunBase 574コラボモデル。日本国内500足のみ生産。ナンバリング入り専用ボックス付属。',
@@ -212,7 +211,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: '限定スニーカー',
   },
   {
-    id: 'fs-011',
+    id: 'fl-011',
     name: 'FlipBoard 2 スペシャルエディション',
     description:
       'ゲームソフト2本同梱の数量限定スペシャルエディション。オリジナルカラーのコントローラー付き。生産数は極めて少数。',
@@ -226,7 +225,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'ゲーム機',
   },
   {
-    id: 'fs-012',
+    id: 'fl-012',
     name: 'つきしろ空 ホールツアー 2026 名古屋公演 アリーナC列',
     description:
       'シンガーソングライター「つきしろ空」の全国ホールツアー名古屋公演。アリーナC列の良席。CD購入者向け優先抽選外の一般販売分。',
@@ -241,7 +240,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
   },
   // ── UPCOMING（予告）3件 ──
   {
-    id: 'fs-013',
+    id: 'fl-013',
     name: '電音フォル 15周年記念ライブ プレミアム席',
     description:
       '人気バーチャルシンガー「電音フォル」の15周年記念特別ライブ。最新AR演出と生オーケストラの競演。プレミアム席は限定200席のみ。',
@@ -255,7 +254,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'バーチャルライブ',
   },
   {
-    id: 'fs-014',
+    id: 'fl-014',
     name: 'MOONWAVE × アークスタジオ 限定コラボフィギュア',
     description:
       '人気音楽ユニット「MOONWAVE」の代表曲をモチーフにした限定フィギュア。全長22cm・塗装済み完成品。1アカウント1個まで。',
@@ -269,7 +268,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'グッズ・フィギュア',
   },
   {
-    id: 'fs-015',
+    id: 'fl-015',
     name: '星海の冒険者 ワールドツアー展 VIP内覧会 招待券',
     description:
       '史上最大規模の漫画展「星海の冒険者展」VIP内覧会の招待券。作者複製サイン入り証明書・限定グッズ付き。定員10名。',
@@ -284,7 +283,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
   },
   // ── SOLD_OUT（売切）2件 ──
   {
-    id: 'fs-016',
+    id: 'fl-016',
     name: 'SOLAR BEAR 日本武道館公演 S席チケット',
     description:
       'バンド「SOLAR BEAR」の日本武道館公演S席チケット。アリーナに隣接の特等席。秒速完売の人気公演。キャンセル待ち不可。',
@@ -298,7 +297,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
     category: 'ライブ・コンサート',
   },
   {
-    id: 'fs-017',
+    id: 'fl-017',
     name: 'RUSH × FORMA コラボスニーカー',
     description:
       'クリエイティブブランド「FORMA」とシューズブランド「RUSH」のコラボスニーカー。完全売り切れ。入荷予定なし。',
@@ -313,7 +312,7 @@ const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = 
   },
   // ── ENDED（終了）1件 ──
   {
-    id: 'fs-018',
+    id: 'fl-018',
     name: '霧島蒼介 アリーナツアー 大阪公演',
     description:
       'シンガーソングライター「霧島蒼介」のアリーナツアー大阪公演チケット。販売期間は終了しています。次回公演情報はオフィシャルサイトで確認。',
@@ -529,7 +528,7 @@ const rawLotteryList: (Omit<LotteryItem, 'viewCount' | 'startsAt'> & { viewCount
     drawAt: now.add(3, 'hour').toISOString(),
     category: 'アニメ・展覧会',
   },
-  // ── DRAWN（抽選済み）2件 ──
+  // ── ENDED（抽選完了・終了）4件 ──
   {
     id: 'lt-013',
     name: 'THUNDER CROWS 全国アリーナツアー 大阪公演',
@@ -538,7 +537,7 @@ const rawLotteryList: (Omit<LotteryItem, 'viewCount' | 'startsAt'> & { viewCount
     price: 8500,
     winnerCount: 1000,
     applyCount: 55000,
-    status: 'DRAWN',
+    status: 'ENDED',
     applyDeadline: now.subtract(3, 'day').toISOString(),
     drawAt: now.subtract(1, 'day').toISOString(),
     category: 'ライブ・コンサート',
@@ -552,12 +551,11 @@ const rawLotteryList: (Omit<LotteryItem, 'viewCount' | 'startsAt'> & { viewCount
     price: 6800,
     winnerCount: 200,
     applyCount: 9800,
-    status: 'DRAWN',
+    status: 'ENDED',
     applyDeadline: now.subtract(4, 'day').toISOString(),
     drawAt: now.subtract(2, 'day').toISOString(),
     category: '音楽グッズ',
   },
-  // ── ENDED（終了）2件 ──
   {
     id: 'lt-015',
     name: '首都国際スポーツ大会 公式記念品 特別抽選',
@@ -608,7 +606,7 @@ export const mockFlashOrderList: FlashOrderItem[] = [
   {
     id: 'ord-001',
     orderNo: 'FB-20260730-001',
-    saleId: 'fs-001',
+    saleId: 'fl-001',
     saleName: '銀河少年団 復活コンサート — 東京ドーム 2026 アリーナ席',
     price: 12000,
     status: 'PAID',
@@ -618,16 +616,16 @@ export const mockFlashOrderList: FlashOrderItem[] = [
   {
     id: 'ord-002',
     orderNo: 'FB-20260729-042',
-    saleId: 'fs-005',
+    saleId: 'fl-005',
     saleName: 'VELO × ZUKI コラボスニーカー 限定モデル',
     price: 29800,
-    status: 'WAITING',
+    status: 'UNPAID',
     createdAt: now.subtract(10, 'minute').toISOString(),
   },
   {
     id: 'ord-003',
     orderNo: 'FB-20260725-108',
-    saleId: 'fs-003',
+    saleId: 'fl-003',
     saleName: '超軽量カーボン ロードバイク フレームセット 2026',
     price: 158000,
     status: 'CANCELLED',
@@ -648,7 +646,7 @@ export const mockLotteryApplicationList: LotteryOrderItem[] = [
     lotteryId: 'lt-013',
     lotteryName: 'THUNDER CROWS 全国アリーナツアー 大阪公演',
     appliedAt: now.subtract(5, 'day').toISOString(),
-    status: 'WON',
+    status: 'UNPAID',
     payDeadline: now.add(2, 'day').toISOString(),
     price: 9800,
   },
@@ -674,7 +672,7 @@ export const mockLotteryApplicationList: LotteryOrderItem[] = [
 
 export const api = {
   // ホーム画面専用 — 閲覧数（viewCount）が多い人気 Top 10 を取得する API
-  async getHomeFeatured(): Promise<HomeFeatured> {
+  async getHomeTop10(): Promise<HomeTop10> {
     await delay(300)
     const flashList = [...mockFlashList]
       .map((s) => ({ ...s, status: computeFlashStatus(s) }))
@@ -827,7 +825,7 @@ export const api = {
   async createFlash(sale: Partial<FlashItem>): Promise<FlashItem> {
     await delay(500)
     const newItem: FlashItem = {
-      id: `fs-${Date.now()}`,
+      id: `fl-${Date.now()}`,
       name: sale.name || '新規フラッシュセール商品',
       description: sale.description || '',
       imageUrl: sale.imageUrl || '',

@@ -1,8 +1,8 @@
-export type FlashOrderStatus = 'WAITING' | 'PAID' | 'CANCELLED' | 'TIMEOUT'
+export type FlashOrderStatus = 'UNPAID' | 'PAID' | 'CANCELLED'
 
-export type LotteryOrderStatus = 'WAITING' | 'WON' | 'LOST' | 'PAID' | 'EXPIRED';
+export type LotteryOrderStatus = 'WAITING' | 'UNPAID' | 'LOST' | 'PAID' | 'CANCELLED'
 
-export type LotteryStatus = 'UPCOMING' | 'ACTIVE' | 'DRAWING' | 'DRAWN' | 'ENDED'
+export type LotteryStatus = 'UPCOMING' | 'ACTIVE' | 'DRAWING' | 'ENDED'
 
 export type FlashStatus = 'UPCOMING' | 'ACTIVE' | 'SOLD_OUT' | 'ENDED'
 
@@ -22,7 +22,7 @@ export interface FlashItem {
   category: string
   viewCount: number // ページの閲覧数（人気度の指標）
   // S3静的ストレージ標準詳細属性 (全商品共通固定)
-  specifications?: { label: string; value: string }[] // 商品スペック (型番, カラー, 発送時期等)
+  specifications?: { label: string; value: string }[] // 商品スペック
   rules?: string[] // 注意事項・購入規約リスト
 }
 
@@ -41,7 +41,7 @@ export interface LotteryItem {
   category: string
   viewCount: number // ページの閲覧数（人気度の指標）
   // S3静的ストレージ標準詳細属性 (全商品共通固定)
-  specifications?: { label: string; value: string }[] // 商品スペック (型番, カラー, 発送時期等)
+  specifications?: { label: string; value: string }[] // 商品スペック
   rules?: string[] // 注意事項・応募規約リスト
 }
 
@@ -107,16 +107,9 @@ export interface MockPaymentResult {
   paidAt: string
 }
 
-// ===== 検索結果 =====
+// ===== 人気Top10 =====
 
-export interface SearchResult {
-  flashList: FlashItem[]
-  lotteryList: LotteryItem[]
-}
-
-// ===== 首页人气特集 =====
-
-export interface HomeFeatured {
+export interface HomeTop10 {
   flashList: FlashItem[] // 人気Top10
   lotteryList: LotteryItem[] // 人気Top10
 }

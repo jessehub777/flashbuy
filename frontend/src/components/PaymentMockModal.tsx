@@ -62,7 +62,7 @@ export default function PaymentMockModal({ orderId, orderNo, amount, onClose, on
             <div className="flex justify-between items-center">
               <div>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] mb-1">ORDER: {orderNo}</div>
-                <div className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: WAITING</div>
+                <div className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: UNPAID</div>
               </div>
               <div className="font-oswald font-bold text-[28px] text-flash">¥{amount.toLocaleString()}</div>
             </div>

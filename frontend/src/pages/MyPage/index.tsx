@@ -31,10 +31,10 @@ export default function MyPage() {
 
   // 統計サマリーの計算
   const stats = useMemo(() => {
-    const WAITINGCount = orders.filter((o) => o.status === 'WAITING').length
+    const unpaidCount = orders.filter((o) => o.status === 'UNPAID').length
     const paidCount = orders.filter((o) => o.status === 'PAID').length
-    const wonCount = applications.filter((a) => a.status === 'WON').length
-    return { WAITINGCount, paidCount, wonCount }
+    const wonCount = applications.filter((a) => a.status === 'UNPAID').length
+    return { unpaidCount, paidCount, wonCount }
   }, [orders, applications])
 
   // 注文ステータスで絞り込んだリスト
@@ -69,7 +69,7 @@ export default function MyPage() {
         <div className="bg-ink-soft border border-warning/20 p-3.5 rounded-[4px]">
           <div className="font-mono text-[10px] text-warning tracking-[1px] mb-1">未払い</div>
           <div className="font-oswald font-bold text-[22px] text-warning">
-            {stats.WAITINGCount} <span className="text-[11px] font-normal text-muted">件</span>
+            {stats.unpaidCount} <span className="text-[11px] font-normal text-muted">件</span>
           </div>
         </div>
         <div className="bg-ink-soft border border-lottery/20 p-3.5 rounded-[4px]">
@@ -101,7 +101,7 @@ export default function MyPage() {
           <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
             {[
               { key: 'ALL', label: 'すべて' },
-              { key: 'WAITING', label: '未払い' },
+              { key: 'UNPAID', label: '未払い' },
               { key: 'PAID', label: '支払済' },
               { key: 'CANCELLED', label: 'キャンセル' },
             ].map((f) => (
@@ -139,7 +139,7 @@ export default function MyPage() {
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <StatusBadge status={order.status} />
-                      {order.status === 'WAITING' && (
+                      {order.status === 'UNPAID' && (
                         <button
                           className="mt-1 px-3 py-1 bg-flash text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
                           onClick={() => setPayingOrder({ id: order.id, no: order.orderNo, amount: order.price })}>
@@ -169,21 +169,21 @@ export default function MyPage() {
                   <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
                     応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
                   </div>
-                  {app.status === 'WON' && app.payDeadline && (
+                  {app.status === 'UNPAID' && app.payDeadline && (
                     <div className="font-mono text-[11px] text-flash mt-1 tracking-[0.5px] font-semibold">
                       支払期限: {dayjs(app.payDeadline).format('MM/DD HH:mm')} まで
                     </div>
                   )}
                 </div>
                 <div className="text-right flex-none">
-                  {(app.status === 'WON' || app.status === 'PAID') && (
+                  {(app.status === 'UNPAID' || app.status === 'PAID') && (
                     <div className="font-oswald font-bold text-[18px] text-paper mb-1">
                       ¥{(app.price ?? 9800).toLocaleString()}
                     </div>
                   )}
                   <div className="flex flex-col items-end gap-1">
                     <LotteryResultBadge status={app.status} />
-                    {app.status === 'WON' && (
+                    {app.status === 'UNPAID' && (
                       <button
                         className="mt-1 px-3 py-1 bg-lottery text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
                         onClick={() =>
@@ -193,7 +193,7 @@ export default function MyPage() {
                             amount: app.price ?? 9800,
                           })
                         }>
-                        購入手続きへ →
+                        支払う →
                       </button>
                     )}
                   </div>
@@ -225,12 +225,11 @@ export default function MyPage() {
 // 注文ステータスバッジ
 function StatusBadge({ status }: { status: FlashOrderStatus }) {
   const config = {
-    WAITING: { label: '未払い', cls: 'text-warning border-warning/30 bg-warning/10' },
+    UNPAID: { label: '未払い', cls: 'text-warning border-warning/30 bg-warning/10' },
     PAID: { label: '支払済', cls: 'text-success border-success/30 bg-success/10' },
     CANCELLED: { label: 'キャンセル', cls: 'text-muted border-white/10 bg-white/5' },
-    TIMEOUT: { label: 'タイムアウト', cls: 'text-muted border-white/10 bg-white/5' },
   }
-  const { label, cls } = config[status]
+  const { label, cls } = config[status] ?? { label: status, cls: 'text-muted border-white/10 bg-white/5' }
   return (
     <span className={`font-mono text-[10px] tracking-[1px] px-2 py-[3px] rounded-[2px] border ${cls}`}>{label}</span>
   )
@@ -240,10 +239,10 @@ function StatusBadge({ status }: { status: FlashOrderStatus }) {
 function LotteryResultBadge({ status }: { status: LotteryOrderStatus }) {
   const config: Record<LotteryOrderStatus, { label: string; cls: string }> = {
     WAITING: { label: '抽選待ち', cls: 'text-muted border-white/10 bg-white/5' },
-    WON: { label: '当選 🎉', cls: 'text-lottery border-lottery/30 bg-lottery/10 font-bold' },
-    PAID: { label: '支払済', cls: 'text-success border-success/30 bg-success/10 font-bold' },
+    UNPAID: { label: '当選 (未払い) 🎉', cls: 'text-lottery border-lottery/30 bg-lottery/10 font-bold' },
+    PAID: { label: '当選 (支払済) 🎉', cls: 'text-success border-success/30 bg-success/10 font-bold' },
     LOST: { label: '落選', cls: 'text-muted border-white/10 bg-white/5' },
-    EXPIRED: { label: '期限切れ', cls: 'text-muted border-white/10 bg-white/5' },
+    CANCELLED: { label: 'キャンセル', cls: 'text-muted border-white/10 bg-white/5' },
   }
   const { label, cls } = config[status] ?? { label: status, cls: 'text-muted border-white/10 bg-white/5' }
   return (

@@ -91,7 +91,7 @@
 
 ### 2.1 フロントエンド
 
-- **Core**: React 18, TypeScript, Vite
+- **Core**: React 19, TypeScript, Vite
 - **Styling**: Vanilla CSS, Tailwind CSS
 - **State & Data**: Zustand, TanStack Query (React Query)
 - **Utilities**: Day.js, Axios

@@ -35,6 +35,7 @@ out/
 *.so
 *.dylib
 api/bin/
+api/main
 
 # Test artifacts
 *.test

@@ -43,7 +43,8 @@ export interface LotteryItem {
   name: string
   description: string
   imageUrl: string
-  price: number // 当選時の支払額。0=無料応募
+  price: number // 抽選時の支払額。0=無料応募
+  chosen_price: number //当選時の支払額
   winnerCount: number // 当選枠数
   applyCount: number // 現在の応募者数（リアルタイム）
   status: LotteryStatus // 判定/動的計算
@@ -102,6 +103,7 @@ export interface LotteryOrderItem {
 export interface User {
   id: string
   email: string
+  pwd: string
   displayName: string
   role: 'user' | 'admin'
 }
@@ -133,6 +135,7 @@ CREATE TABLE users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cognito_sub   VARCHAR(128) UNIQUE NOT NULL,  -- Cognito User Pool Subject
   email         VARCHAR(255) UNIQUE NOT NULL,
+  pwd           VARCHAR(255) NOT NULL,
   display_name  VARCHAR(100) NOT NULL,
   role          VARCHAR(20) NOT NULL DEFAULT 'user'
                 CHECK (role IN ('user', 'admin')),
@@ -182,6 +185,7 @@ CREATE TABLE lottery_items (
   image_s3_key     VARCHAR(512),
   detail_s3_key    VARCHAR(512),                  -- S3 JSON詳細ファイルのキー
   price            INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
+  chosen_price    INTEGER NOT NULL DEFAULT 0 CHECK (chosen_price >= 0),
   winner_count     INTEGER NOT NULL CHECK (winner_count > 0),
   apply_count      INTEGER NOT NULL DEFAULT 0,    -- Redis INCR / カウント同期
   starts_at        TIMESTAMPTZ NOT NULL,          -- 応募開始日時
@@ -204,9 +208,9 @@ CREATE INDEX idx_lottery_items_category     ON lottery_items(category);
 ```sql
 CREATE TABLE flash_orders (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_no     VARCHAR(30) UNIQUE NOT NULL,       -- "FB-20260730-0042"
+  order_no     VARCHAR(30) UNIQUE NOT NULL,
   user_id      UUID NOT NULL REFERENCES users(id),
-  sale_id      UUID NOT NULL REFERENCES flash_items(id),
+  flash_id      UUID NOT NULL REFERENCES flash_items(id),
   price        INTEGER NOT NULL,
   status       VARCHAR(20) NOT NULL DEFAULT 'UNPAID'
                 CHECK (status IN ('UNPAID','PAID','CANCELLED')),
@@ -217,7 +221,7 @@ CREATE TABLE flash_orders (
 );
 
 CREATE INDEX idx_flash_orders_user_id  ON flash_orders(user_id, created_at DESC);
-CREATE INDEX idx_flash_orders_sale_id  ON flash_orders(sale_id);
+CREATE INDEX idx_flash_orders_flash_id  ON flash_orders(flash_id);
 CREATE INDEX idx_flash_orders_expires  ON flash_orders(expires_at) WHERE status = 'UNPAID';
 ```
 
@@ -231,6 +235,8 @@ CREATE TABLE lottery_orders (
   applied_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   status        VARCHAR(20) NOT NULL DEFAULT 'WAITING'
                 CHECK (status IN ('WAITING','UNPAID','LOST','PAID','CANCELLED')),
+  price         INTEGER NOT NULL DEFAULT 0,
+  chosen_price INTEGER NOT NULL DEFAULT 0,
   pay_deadline  TIMESTAMPTZ,                       -- 当選者の支払期限
   paid_at       TIMESTAMPTZ,                       -- 決済完了日時
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),

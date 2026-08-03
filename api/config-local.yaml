@@ -1,0 +1,23 @@
+app:
+  env: local
+  port: "8080"
+
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  dbname: flashbuy
+  sslmode: disable
+
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+
+aws:
+  region: ap-northeast-1
+  access_key_id: ""
+  secret_access_key: ""
+  s3_bucket_name: ""

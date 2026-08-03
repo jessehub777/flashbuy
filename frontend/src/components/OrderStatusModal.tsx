@@ -23,7 +23,7 @@ export default function OrderStatusModal({ saleName, price, onClose, onProceedPa
       }, 3000)
       return () => clearTimeout(t)
     }
-  }, [buyStatus])
+  }, [buyStatus, onClose, resetBuyStatus])
 
   const handleClose = () => {
     resetBuyStatus()

@@ -17,20 +17,23 @@ export default function Home() {
     refetchInterval: 15000, // 閲覧数や在庫の更新を反映する
   })
 
-  const flashList = featuredData?.flashList ?? []
-  const lotteryList = featuredData?.lotteryList ?? []
-
   // 人気Top10のレスポンスデータから「人気カテゴリー」をフロントエンドで動的に計算・抽出する（追加APIなし）
   const popularCategories = useMemo(() => {
+    const fList = featuredData?.flashList ?? []
+    const lList = featuredData?.lotteryList ?? []
+    
     const categoriesSet = new Set<string>()
-    flashList.forEach((s) => {
+    fList.forEach((s) => {
       if (s.category) categoriesSet.add(s.category)
     })
-    lotteryList.forEach((l) => {
+    lList.forEach((l) => {
       if (l.category) categoriesSet.add(l.category)
     })
     return Array.from(categoriesSet).slice(0, 5) // 上位最大5件
-  }, [flashList, lotteryList])
+  }, [featuredData])
+
+  const flashList = featuredData?.flashList ?? []
+  const lotteryList = featuredData?.lotteryList ?? []
 
   const { appliedIds } = useOrderStore()
 

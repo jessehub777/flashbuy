@@ -23,9 +23,10 @@ resource "aws_iam_role" "github_actions_dev" {
         }
         Condition = {
           StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-            # GitHub Actions で environment を指定しているため、sub は environment フォーマットになります
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:development"
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = "repo:*${var.github_repo}*:*"
           }
         }
       }
@@ -73,9 +74,10 @@ resource "aws_iam_role" "github_actions_prod" {
         }
         Condition = {
           StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-            # GitHub Actions で environment を指定しているため、sub は environment フォーマットになります
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:production"
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = "repo:*${var.github_repo}*:*"
           }
         }
       }

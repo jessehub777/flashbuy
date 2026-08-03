@@ -7,16 +7,16 @@ import (
 	"flashbuy/api/config"
 	"flashbuy/api/pkg/logger"
 
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 )
 
-var DB *gorm.DB
+// DB はグローバルのデータベース接続プールです
+var DB *sqlx.DB
 
 // InitDB はPostgreSQLデータベースへの接続を初期化します。
-// 設定ファイル（または環境変数）から接続情報を読み込み、GORMを使って接続プールを設定します。
+// 設定ファイルから接続情報を読み込み、sqlxを使って接続プールを設定します。
 func InitDB(cfg *config.DatabaseConfig) error {
 	// DSN (Data Source Name) の構築
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=%s",
@@ -24,27 +24,17 @@ func InitDB(cfg *config.DatabaseConfig) error {
 
 	logger.Info("データベースへの接続を開始します", zap.String("host", cfg.Host), zap.Int("port", cfg.Port))
 
-	// GORMの初期化（ログ出力の設定を追加）
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Info),
-	})
-
+	// sqlx.Connect を使って接続とPingを同時に実行
+	db, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
 		logger.Error("データベース接続エラー", zap.Error(err))
 		return err
 	}
 
-	// 内部の*sql.DBを取得してコネクションプールの詳細設定を行う
-	sqlDB, err := db.DB()
-	if err != nil {
-		logger.Error("データベースインスタンス取得エラー", zap.Error(err))
-		return err
-	}
-
 	// コネクションプールの設定（パフォーマンス最適化）
-	sqlDB.SetMaxIdleConns(10)           // アイドル状態の最大コネクション数
-	sqlDB.SetMaxOpenConns(100)          // オープン可能な最大コネクション数
-	sqlDB.SetConnMaxLifetime(time.Hour) // コネクションの最大生存期間
+	db.SetMaxIdleConns(10)           // アイドル状態の最大コネクション数
+	db.SetMaxOpenConns(100)          // オープン可能な最大コネクション数
+	db.SetConnMaxLifetime(time.Hour) // コネクションの最大生存期間
 
 	// グローバル変数にセット
 	DB = db
@@ -57,10 +47,7 @@ func InitDB(cfg *config.DatabaseConfig) error {
 // アプリケーション終了時に呼び出してください。
 func CloseDB() {
 	if DB != nil {
-		sqlDB, err := DB.DB()
-		if err == nil {
-			logger.Info("データベース接続をクローズします")
-			_ = sqlDB.Close()
-		}
+		logger.Info("データベース接続をクローズします")
+		_ = DB.Close()
 	}
 }

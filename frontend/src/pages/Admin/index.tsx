@@ -14,6 +14,14 @@ export default function Admin() {
   const [tab, setTab] = useState<'flash' | 'lottery' | 'orders'>('flash')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createType, setCreateType] = useState<'flash' | 'lottery'>('flash')
+  const { data: flashList = [] } = useQuery({
+    queryKey: ['flashList', 'all'],
+    queryFn: api.getFlashList,
+  })
+  const { data: lotteryList = [] } = useQuery({
+    queryKey: ['lotteryList', 'all'],
+    queryFn: api.getLotteryList,
+  })
 
   if (!isLoggedIn()) {
     navigate('/login')
@@ -28,14 +36,7 @@ export default function Admin() {
     )
   }
 
-  const { data: flashList = [] } = useQuery({
-    queryKey: ['flashList', 'all'],
-    queryFn: api.getFlashList,
-  })
-  const { data: lotteryList = [] } = useQuery({
-    queryKey: ['lotteryList', 'all'],
-    queryFn: api.getLotteryList,
-  })
+
 
   return (
     <div className="max-w-5xl mx-auto px-10 py-10 page-enter max-sm:px-5">

@@ -27,7 +27,7 @@ export default function MyPage() {
     }
     fetchOrders()
     fetchApplications()
-  }, [])
+  }, [fetchApplications, fetchOrders, isLoggedIn, location, navigate])
 
   // 統計サマリーの計算
   const stats = useMemo(() => {

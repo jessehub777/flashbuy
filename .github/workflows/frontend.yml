@@ -1,4 +1,4 @@
-name: Frontend CI
+name: Frontend CI/CD
 
 # トリガー条件：develop / main ブランチへの push 及び PR 時
 on:
@@ -13,9 +13,20 @@ on:
       - 'frontend/**'
       - '.github/workflows/frontend.yml'
 
+# 最低限の権限に絞る（コード読み取りのみ）
+permissions:
+  contents: read
+
+# 同一PR/ブランチでの連続実行時は古いジョブをキャンセルしてリソースを節約し、
+# 同時デプロイによる競合を防止する
+concurrency:
+  group: frontend-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     # デフォルトの作業ディレクトリを frontend に設定
     defaults:
@@ -23,32 +34,97 @@ jobs:
         working-directory: frontend
 
     steps:
-      # 1. リポジトリのコードをチェックアウト
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. pnpm のセットアップ（バージョン固定）
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 11
 
-      # 3. Node.js のセットアップおよびキャッシュの有効化
       - name: Setup Node.js & Enable Cache
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          # 开启缓存，第一次 CI 时把依赖文件缓存到 GitHub 的云存储里
           cache: 'pnpm'
-          # 后续再跑 CI 时新启动的虚拟机发现 pnpm-lock.yaml 没变，就会直接解压 GitHub 云存储里的压缩包
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      # 4. 依存パッケージのインストール（lockファイルに厳密に従う）
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      # 5. 型チェックおよびビルド実行
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit Test
+        run: pnpm test
+
       - name: Build and Type Check
         run: pnpm build
 
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
 
+  deploy:
+    name: Deploy to AWS S3 & CloudFront
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 10
+    
+    # main または develop ブランチへの push 時のみデプロイを実行（PRでは実行しない）
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    # 環境を指定（productionの場合はGitHub Environments機能による承認ステップが挟める）
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    
+    # AWS 認証用 (OIDC) の権限設定
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # ブランチに応じてデプロイ用の IAM Role を切り分ける（最小権限の原則）
+          role-to-assume: ${{ github.ref == 'refs/heads/main' && secrets.AWS_ROLE_ARN_PROD || secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ap-northeast-1
+
+      - name: Deploy to S3
+        run: |
+          # ブランチに応じてデプロイ先の S3 バケットを切り替える
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            BUCKET_NAME=${{ secrets.S3_BUCKET_PROD }}
+          else
+            BUCKET_NAME=${{ secrets.S3_BUCKET_DEV }}
+          fi
+          
+          # 1. 新しい静的アセット (JS/CSS等) をアップロード (まだ削除しない)
+          aws s3 sync ./dist s3://$BUCKET_NAME --exclude "index.html" --cache-control "max-age=31536000,immutable"
+          
+          # 2. index.html を更新 (no-cache)
+          aws s3 cp ./dist/index.html s3://$BUCKET_NAME/index.html --cache-control "no-cache"
+          
+          # 3. 古いアセットを削除
+          aws s3 sync ./dist s3://$BUCKET_NAME --delete --exclude "index.html"
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          # ブランチに応じて対象の CloudFront を切り替える
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            DISTRIBUTION_ID=${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_PROD }}
+          else
+            DISTRIBUTION_ID=${{ secrets.CLOUDFRONT_DISTRIBUTION_ID_DEV }}
+          fi
+          
+          # Viteはファイル名にhashを付けるため、index.html のキャッシュを飛ばすだけでOK
+          aws cloudfront create-invalidation --distribution-id $DISTRIBUTION_ID --paths "/index.html"

@@ -1,11 +1,10 @@
 package controllers
 
 import (
-	"net/http"
-
 	"flashbuy/api/models"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
+	"flashbuy/api/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -29,7 +28,7 @@ func (h *HomeController) GetTop10(c *gin.Context) {
 	err := database.DB.Select(&flashList, "SELECT * FROM flash_items ORDER BY view_count DESC LIMIT 10")
 	if err != nil {
 		logger.Error("フラッシュセール商品の取得に失敗しました", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch flash items"})
+		response.Error(c, response.CodeSystemError)
 		return
 	}
 
@@ -37,16 +36,13 @@ func (h *HomeController) GetTop10(c *gin.Context) {
 	err = database.DB.Select(&lotteryList, "SELECT * FROM lottery_items ORDER BY view_count DESC LIMIT 10")
 	if err != nil {
 		logger.Error("抽選商品の取得に失敗しました", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch lottery items"})
+		response.Error(c, response.CodeSystemError)
 		return
 	}
 
-	// 成功レスポンス
-	c.JSON(http.StatusOK, gin.H{
-		"message": "success",
-		"data": gin.H{
-			"flashList":   flashList,
-			"lotteryList": lotteryList,
-		},
+	// 使用封装的 Success 方法返回数据
+	response.Success(c, gin.H{
+		"flashList":   flashList,
+		"lotteryList": lotteryList,
 	})
 }

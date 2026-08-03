@@ -12,8 +12,8 @@ import (
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
+	"flashbuy/api/router"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -46,23 +46,8 @@ func main() {
 	}
 	defer cache.CloseRedis()
 
-	// 5. Gin HTTPサーバーの設定
-	// 実行環境が本番環境であればGinのモードをReleaseに設定
-	if cfg.App.Env == "prod" {
-		gin.SetMode(gin.ReleaseMode)
-	} else {
-		gin.SetMode(gin.DebugMode)
-	}
-
-	r := gin.Default()
-
-	// ヘルスチェック用のシンプルなAPI
-	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-			"env":     cfg.App.Env,
-		})
-	})
+	// 5. Gin HTTPサーバーの設定とルーティング
+	r := router.SetupRouter(cfg.App.Env)
 
 	// サーバーインスタンスの作成
 	srv := &http.Server{

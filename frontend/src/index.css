@@ -1,0 +1,210 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== CSS Variables (mirrors design mockup) ===== */
+:root {
+  --ink: #0e0e10;
+  --ink-soft: #17171a;
+  --paper: #f6f4ee;
+  --paper-dim: #eae7dd;
+  --flash: #ff4128;
+  --flash-dim: #5c1c14;
+  --lottery: #3b6fe0;
+  --lottery-dim: #182c5c;
+  --muted: #9a978e;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-paper: #d8d5cb;
+}
+
+/* ===== Base ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Noto Sans JP', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Typography helpers ===== */
+.font-oswald {
+  font-family: 'Oswald', sans-serif;
+}
+.font-mono-custom {
+  font-family: 'IBM Plex Mono', monospace;
+}
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== Scrollbar hide ===== */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== Ticket tear edge (perforated) ===== */
+.tear-edge {
+  height: 14px;
+  background: radial-gradient(circle at 8px 0, transparent 6px, var(--paper) 6.5px) repeat-x;
+  background-size: 16px 14px;
+  background-position: 8px -7px;
+  margin-top: -1px;
+}
+
+/* ===== Flip countdown card ===== */
+.flip-card {
+  perspective: 600px;
+}
+.flip-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.35s ease-in-out;
+}
+
+/* ===== Pulse dot (LIVE indicator) ===== */
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--flash);
+  border-radius: 50%;
+  animation: pulseDot 1.6s infinite;
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ===== Custom scrollbar for rail ===== */
+.rail-scroll {
+  display: flex;
+  gap: 22px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== Modal backdrop ===== */
+.modal-backdrop {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ===== Button base ===== */
+.btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Oswald', sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border-radius: 3px;
+  border: none;
+  cursor: pointer;
+  transition:
+    filter 0.15s ease,
+    transform 0.1s ease;
+  padding: 11px 0;
+  width: 100%;
+  color: var(--paper);
+}
+.btn-base:hover {
+  filter: brightness(1.1);
+}
+.btn-base:active {
+  transform: scale(0.98);
+}
+.btn-base:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===== Order status badge ===== */
+.status-WAITING {
+  color: #f59e0b;
+}
+.status-success {
+  color: #22c55e;
+}
+.status-failed {
+  color: #ef4444;
+}
+.status-cancelled {
+  color: var(--muted);
+}
+
+/* ===== Page transitions ===== */
+.page-enter {
+  animation: fadeIn 0.25s ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ===== Admin table ===== */
+.admin-table td,
+.admin-table th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.admin-table th {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+/* ===== Input ===== */
+.input-dark {
+  background: var(--ink-soft);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: var(--paper);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: 'Noto Sans JP', sans-serif;
+  width: 100%;
+  transition: border-color 0.15s;
+  outline: none;
+}
+.input-dark:focus {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.input-dark::placeholder {
+  color: var(--muted);
+}

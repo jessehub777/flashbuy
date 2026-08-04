@@ -45,7 +45,7 @@ function App() {
                 element={
                   <div className="flex items-center justify-center h-[60vh] flex-col gap-4">
                     <div className="font-oswald font-bold text-[80px] text-white/[0.06]">404</div>
-                    <p className="font-mono text-[13px] text-muted tracking-[1px]">ページが見つかりません。</p>
+                    <p className="font-mono text-[13px] text-muted tracking-[1px]">ページが見つかりません</p>
                   </div>
                 }
               />

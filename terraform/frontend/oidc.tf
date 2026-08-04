@@ -25,8 +25,7 @@ resource "aws_iam_role" "github_actions_dev" {
           # dev role
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:ref:refs/heads/develop"
-          }
+            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:environment:development"          }
         }
       }
     ]
@@ -75,8 +74,7 @@ resource "aws_iam_role" "github_actions_prod" {
           # prod role
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:ref:refs/heads/main"
-          }
+            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:environment:production"          }
         }
       }
     ]

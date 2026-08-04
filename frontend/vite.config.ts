@@ -7,5 +7,11 @@ export default defineConfig({
   server: {
     host: true, // 自动绑定 0.0.0.0，暴露局域网 IP
     port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      }
+    }
   },
 })

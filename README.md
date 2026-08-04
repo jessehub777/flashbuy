@@ -60,12 +60,14 @@
 │                          データ層 (Data)                             │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Aurora Serverless v2 (PostgreSQL 15)                                │
-│    テーブル: flash_sales / flash_orders / lottery_records / users    │
+│    テーブル: flash_items / flash_orders / lottery_items /            │
+│              lottery_orders / users                                 │
 │                                                                        │
 │  ElastiCache Redis — シングルノード構成（プライマリ/レプリカ）        │
 │    在庫 (String) / 商品詳細 (Hash) / レートリミット / 分散ロック      │
 │                                                                        │
-│  S3:  フロントエンドSPAホスティング / 静的画像 / バックアップデータ   │
+│  S3:  フロントエンドSPAホスティング / 静的画像 / 静的詳細JSON /       │
+│       Glacier 長期アーカイブ (6m / 1y / 3y ストレージ階層検索対応)   │
 └────────────────────────┼──────────────────────────────────────────────┘
                           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -88,12 +90,14 @@
 ## 2. 技術スタック
 
 ### 2.1 フロントエンド
-- **Core**: React 18, TypeScript, Vite
-- **Styling**: Tailwind CSS
+
+- **Core**: React 19, TypeScript, Vite
+- **Styling**: Vanilla CSS, Tailwind CSS
 - **State & Data**: Zustand, TanStack Query (React Query)
 - **Utilities**: Day.js, Axios
 
 ### 2.2 バックエンド (Go)
+
 - **Framework**: Go 1.26, Gin
 - **Database Access**: sqlx, PostgreSQL (Aurora)
 - **Cache & Storage**: go-redis/v9 (Redis Lua Scripting)
@@ -101,13 +105,16 @@
 - **Logging & Validation**: Zap, go-playground/validator
 
 ### 2.3 クラウド・インフラ (AWS)
+
 - **Compute**: ECS Fargate Spot, AWS Lambda (Go Runtime)
 - **Database & Cache**: Aurora Serverless v2 (PostgreSQL 15), ElastiCache Redis
+- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive (時間軸階層型検索対応)
 - **Messaging & Event**: SQS Standard, SNS Standard, EventBridge
 - **Network & Security**: ALB, Route53, ACM, Amazon Cognito
 - **Deployment & Monitoring**: CodeDeploy, CloudWatch, Grafana
 
 ### 2.4 IaC & CI/CD
+
 - **Terraform** (モジュール化構成, S3 Remote State + DynamoDB Lock)
 - **GitHub Actions** (ビルド、テスト、ECRプッシュ、Terraform反映)
 
@@ -116,6 +123,7 @@
 ## 3. コアデータフロー
 
 ### 3.1 フラッシュセール（先着購入）フロー
+
 ```
 [ユーザー] 「今すぐ購入」をクリック
    ↓
@@ -133,11 +141,12 @@
    ↓ 非同期処理
 [Lambda - OrderCreator]
    ⑦ SQS メッセージを受信・処理
-   ⑧ Aurora トランザクション処理 (PENDING 状態で注文作成)
+   ⑧ Aurora トランザクション処理 (UNPAID 状態で注文作成)
    ⑨ SNS トピック発行 (order.created)
 ```
 
 ### 3.2 抽選フロー
+
 ```
 [管理者/EventBridge] 抽選開始トリガー
    ↓
@@ -145,7 +154,7 @@
    ① Aurora から応募者リストを取得
    ② crypto/rand による安全な乱数生成
    ③ Fisher-Yates アルゴリズムによるシャッフル
-   ④ 当選者の抽出と DB へのバッチ書き込み
+   ④ 当選者の抽出と DB へのバッチ書き込み (status: UNPAID / LOST に統一更新)
    ⑤ SNS トピック発行 (lottery.drawn)
 ```
 
@@ -155,15 +164,17 @@
 
 ```
 flashbuy/
+├── frontend/                       # React + TypeScript フロントエンド
+│   ├── src/
+│   │   ├── components/             # 共通コンポーネント (Countdown, TicketCard, PaymentMockModal)
+│   │   ├── pages/                  # 画面 (Home, FlashList, Flash, LotteryList, Lottery, Search, MyPage, Admin)
+│   │   ├── services/               # API 通信 & Mock データ (api.ts)
+│   │   ├── stores/                 # Zustand 状態管理 (authStore, orderStore)
+│   │   └── types/                  # TypeScript 型定義 (index.ts)
 ├── api/                            # Go API メインサービス
 ├── lambdas/                        # AWS Lambda 非同期ワーカー
-├── frontend/                       # React + TypeScript フロントエンド
 ├── terraform/                      # Terraform インフラ定義
-│   ├── modules/                    # 共通モジュール
-│   └── environments/               # dev / prod 環境構成
-├── scripts/                        # プレウォーム / テスト用スクリプト
-├── docs/                           # 詳細ドキュメント
-├── docker-compose.yml              # ローカル開発環境配置
+├── data_design_analysis.md         # データ構造・バックエンド設計ドキュメント
 └── README.md
 ```
 
@@ -173,13 +184,13 @@ flashbuy/
 
 プロトタイプ開発において、実効性の高い検証と運用の実現可能性を考慮し、以下のトレードオフを選択しています：
 
-| 項目 | 本構成 (PoC) | 本番環境 (Production) | 採用理由・トレードオフ |
-| --- | --- | --- | --- |
-| **CDN / WAF** | 未導入 | CloudFront + AWS WAF | 本環境ではエッジキャッシュ検証用トラフィックがないため省略 |
-| **可観測性** | CloudWatch + Grafana | + AWS X-Ray | 単一運用者のためログ集約と構造化ログで十分な追跡性を確保 |
-| **SQS / SNS** | Standard モード | 状況に応じ FIFO | スループット優先のため、厳密な順序制御を省略 |
+| 項目 | 本構成 (PoC) | 本番環境 (Production) | 採用理由・トレードオフ                                             |
+| :--- | :--- | :--- |:-------------------------------------------------------------------|
+| **CDN / WAF** | 未導入 | CloudFront + AWS WAF | 本環境ではエッジキャッシュ検証用トラフィックがないため省略         |
+| **可観測性** | CloudWatch + Grafana | + AWS X-Ray | 単一運用者のためログ集約と構造化ログで十分な追跡性を確保           |
+| **SQS / SNS** | Standard モード | 状況に応じ FIFO | スループット優先のため、厳密な順序制御を省略                       |
 | **Redis** | シングルノード構成 | Cluster 3ノード以上 | ロジック検証において単一ノードで十分なスループットを維持できるため |
-| **決済処理** | ステートマシン Mock | 外部決済 API | 決済状態遷移（PENDING → PAID → TIMEOUT）のロジック検証に特化 |
+| **決済処理** | ステートマシン Mock | 外部決済 API | 決済状態遷移（UNPAID → PAID → TIMEOUT）のロジック検証に特化            |
 
 ---
 

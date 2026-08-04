@@ -3,6 +3,7 @@
 // ※ 登場する人名・グループ名・作品名・ブランド名はすべて架空のものです
 
 import dayjs from 'dayjs'
+import axios from 'axios'
 import type {
   FlashItem,
   LotteryItem,
@@ -673,16 +674,22 @@ export const mockLotteryApplicationList: LotteryOrderItem[] = [
 export const api = {
   // ホーム画面専用 — 閲覧数（viewCount）が多い人気 Top 10 を取得する API
   async getHomeTop10(): Promise<HomeTop10> {
-    await delay(300)
-    const flashList = [...mockFlashList]
-      .map((s) => ({ ...s, status: computeFlashStatus(s) }))
-      .sort((a, b) => b.viewCount - a.viewCount)
-      .slice(0, 10)
+    const { data } = await axios.get<{ code: number; message: string; data: any }>('/api/v1/home/top10')
+    if (data.code !== 0) {
+      throw new Error(data.message || 'Failed to fetch home top 10')
+    }
 
-    const lotteryList = [...mockLotteryList]
-      .map((l) => ({ ...l, status: computeLotteryStatus(l) }))
-      .sort((a, b) => b.viewCount - a.viewCount)
-      .slice(0, 10)
+    const flashList = (data.data?.flashList || []).map((s: any) => ({
+      ...s,
+      imageUrl: s.imageS3Key || '',
+      status: computeFlashStatus(s),
+    }))
+
+    const lotteryList = (data.data?.lotteryList || []).map((l: any) => ({
+      ...l,
+      imageUrl: l.imageS3Key || '',
+      status: computeLotteryStatus(l),
+    }))
 
     return { flashList, lotteryList }
   },

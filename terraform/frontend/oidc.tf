@@ -22,12 +22,10 @@ resource "aws_iam_role" "github_actions_dev" {
           Federated = data.aws_iam_openid_connect_provider.github.arn
         }
         Condition = {
+          # dev role
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          }
-          StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:*${var.github_repo}*:*"
-          }
+            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:environment:development"          }
         }
       }
     ]
@@ -73,12 +71,10 @@ resource "aws_iam_role" "github_actions_prod" {
           Federated = data.aws_iam_openid_connect_provider.github.arn
         }
         Condition = {
+          # prod role
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          }
-          StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:*${var.github_repo}*:*"
-          }
+            "token.actions.githubusercontent.com:sub" = "repo:jessehub777@28582598/flashbuy@1317326878:environment:production"          }
         }
       }
     ]

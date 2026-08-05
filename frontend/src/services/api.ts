@@ -44,308 +44,9 @@ export function computeLotteryStatus(item: LotteryItem): LotteryStatus {
   return 'ACTIVE'
 }
 
-// ===== フラッシュセール Mock データ（18件）=====
-// ※ すべて架空のイベント・商品です
-// startsAt / endsAt / stock から status が自動計算される
-const rawFlashList: (Omit<FlashItem, 'viewCount'> & { viewCount?: number })[] = [
-  // ── ACTIVE（販売中）12件 ──
-  {
-    id: 'fl-001',
-    name: '銀河少年団 復活コンサート — 東京ドーム 2026 アリーナ席',
-    description:
-      '伝説の5人組グループ「銀河少年団」が6年ぶりに復活！東京ドーム公演のアリーナA席チケット。転売禁止・本人確認あり。1アカウント1枚限り。',
-    imageUrl: '',
-    price: 12000,
-    stock: 42,
-    totalStock: 500,
-    status: 'ACTIVE',
-    startsAt: now.subtract(30, 'minute').toISOString(),
-    endsAt: now.add(2, 'hour').toISOString(),
-    category: 'ライブ・コンサート',
-    // 汎用S3拡張詳細データ (シングルSKU対応・BackendがS3より結合)
-    specifications: [
-      { label: '開催会場', value: '東京ドーム（東京都文京区後楽1-3-61）' },
-      { label: '主催・企画', value: '銀河少年団 2026 実行委員会 / DISK GARAGE' },
-      { label: '発券方法', value: '電子チケット（FlashBuy スマチケ アプリ入場）' },
-      { label: 'お問い合わせ', value: 'DISK GARAGE (TEL: 050-5533-0888)' },
-    ],
-    rules: [
-      'お1人様 1回につき 1枚までご購入いただけます。',
-      '転売目的の購入は固く禁止されており、入場時に本人確認を実施します。',
-      '未就学児童の入場は不可となります（小学生以上チケット必要）。',
-    ],
-  },
-  {
-    id: 'fl-002',
-    name: 'ソラリス24 全国握手会 参加券 幕張会場',
-    description:
-      '人気アイドルグループ「ソラリス24」最新シングル発売記念の全国握手会参加券。各メンバー1回握手できます。会場は幕張メッセ。チケットは電子入場証。',
-    imageUrl: '',
-    price: 1500,
-    stock: 8,
-    totalStock: 2000,
-    status: 'ACTIVE',
-    startsAt: now.subtract(1, 'hour').toISOString(),
-    endsAt: now.add(45, 'minute').toISOString(),
-    category: 'アイドル・握手会',
-  },
-  {
-    id: 'fl-003',
-    name: 'Jリーグ チャンピオンシップ決勝 ゴール裏SS席',
-    description: '2026 Jリーグチャンピオンシップ決勝のゴール裏SS席チケット。試合前の入場セレモニーも間近で見られます。',
-    imageUrl: '',
-    price: 8800,
-    stock: 15,
-    totalStock: 100,
-    status: 'ACTIVE',
-    startsAt: now.subtract(2, 'hour').toISOString(),
-    endsAt: now.add(6, 'hour').toISOString(),
-    category: 'スポーツ観戦',
-  },
-  {
-    id: 'fl-004',
-    name: '映画「炎獄の守護者」最終章 特別試写会 招待状',
-    description:
-      '大人気アニメ映画「炎獄の守護者」最終章の一般公開2日前の特別試写会招待状。監督・主要声優登壇の舞台挨拶あり。来場特典クリアファイル付き。',
-    imageUrl: '',
-    price: 3500,
-    stock: 3,
-    totalStock: 200,
-    status: 'ACTIVE',
-    startsAt: now.subtract(20, 'minute').toISOString(),
-    endsAt: now.add(3, 'hour').toISOString(),
-    category: '映画・試写会',
-  },
-  {
-    id: 'fl-005',
-    name: 'VELO × ZUKI コラボスニーカー 限定モデル (26.5cm)',
-    description: '国内300足限定のVELO × ZUKIコラボモデル。正規品保証・専用シリアルナンバー刻印入り。単一SKU限定販売。',
-    imageUrl: '',
-    price: 29800,
-    stock: 5,
-    totalStock: 30,
-    status: 'ACTIVE',
-    startsAt: now.subtract(10, 'minute').toISOString(),
-    endsAt: now.add(5, 'hour').toISOString(),
-    category: '限定スニーカー',
-    // 汎用S3拡張詳細データ (シングルSKU対応・限定スニーカー)
-    specifications: [
-      { label: 'ブランド', value: 'VELO × ZUKI' },
-      { label: '型番 (SKU)', value: 'VZ-2026-OG-RED' },
-      { label: 'カラー', value: 'RETRO WHITE / VARSITY RED' },
-      { label: 'サイズ', value: '26.5cm (単一SKU販売)' },
-      { label: '発送時期', value: '決済完了後 2〜4営業日以内に発送' },
-      { label: '返品規定', value: '限定品のため購入完了後のキャンセル・返品不可' },
-    ],
-    rules: [
-      'お1人様（1アカウント）につき 1点までご購入いただけます。',
-      '自動購入プロセスの不正検知（BOT対策）を実施しており、不正検知時は自動キャンセルとなります。',
-      '外箱の初期擦れ等による交換は致しかねます。',
-    ],
-  },
-  {
-    id: 'fl-006',
-    name: 'CoreBox 5 Pro ソフト3本同梱版',
-    description: '数量限定のCoreBox 5 Pro同梱版。最新タイトル3本付属。メーカー1年保証。転売防止のため本人確認必須。',
-    imageUrl: '',
-    price: 89980,
-    stock: 20,
-    totalStock: 200,
-    status: 'ACTIVE',
-    startsAt: now.subtract(10, 'minute').toISOString(),
-    endsAt: now.add(30, 'minute').toISOString(),
-    category: 'ゲーム機',
-  },
-  {
-    id: 'fl-007',
-    name: '東京ゲームフェスト 2026 一般優先入場券',
-    description:
-      '一般公開日より1時間早く入場できる優先券。限定グッズ交換券付き。幕張メッセ全館入場可。会場混雑時も優先レーン使用可。',
-    imageUrl: '',
-    price: 2800,
-    stock: 150,
-    totalStock: 1000,
-    status: 'ACTIVE',
-    startsAt: now.subtract(3, 'hour').toISOString(),
-    endsAt: now.add(1, 'day').toISOString(),
-    category: 'ゲームイベント',
-  },
-  {
-    id: 'fl-008',
-    name: '月影歌劇団 風組公演 東京大劇場 SS席',
-    description: '月影歌劇団 風組の東京大劇場SS席。舞台に最も近い特等席。公演後の出待ちエリアへのアクセスあり。',
-    imageUrl: '',
-    price: 18000,
-    stock: 7,
-    totalStock: 50,
-    status: 'ACTIVE',
-    startsAt: now.subtract(1, 'hour').toISOString(),
-    endsAt: now.add(4, 'hour').toISOString(),
-    category: '舞台・ミュージカル',
-  },
-  {
-    id: 'fl-009',
-    name: '創作大祭 2026 秋 一般参加 整理券（午前）',
-    description:
-      '同人誌即売会「創作大祭」秋大会の一般参加整理券（午前の部）。整理番号順に入場。東京ビッグサイト東展示棟。',
-    imageUrl: '',
-    price: 1800,
-    stock: 200,
-    totalStock: 5000,
-    status: 'ACTIVE',
-    startsAt: now.subtract(15, 'minute').toISOString(),
-    endsAt: now.add(5, 'hour').toISOString(),
-    category: '同人誌・アニメイベント',
-  },
-  {
-    id: 'fl-010',
-    name: 'RunBase 574 × BLOC Tokyo 限定コラボ',
-    description:
-      'BLOC Tokyo限定カラーのRunBase 574コラボモデル。日本国内500足のみ生産。ナンバリング入り専用ボックス付属。',
-    imageUrl: '',
-    price: 22000,
-    stock: 12,
-    totalStock: 50,
-    status: 'ACTIVE',
-    startsAt: now.subtract(40, 'minute').toISOString(),
-    endsAt: now.add(2, 'hour').add(30, 'minute').toISOString(),
-    category: '限定スニーカー',
-  },
-  {
-    id: 'fl-011',
-    name: 'FlipBoard 2 スペシャルエディション',
-    description:
-      'ゲームソフト2本同梱の数量限定スペシャルエディション。オリジナルカラーのコントローラー付き。生産数は極めて少数。',
-    imageUrl: '',
-    price: 54980,
-    stock: 35,
-    totalStock: 300,
-    status: 'ACTIVE',
-    startsAt: now.subtract(5, 'minute').toISOString(),
-    endsAt: now.add(50, 'minute').toISOString(),
-    category: 'ゲーム機',
-  },
-  {
-    id: 'fl-012',
-    name: 'つきしろ空 ホールツアー 2026 名古屋公演 アリーナC列',
-    description:
-      'シンガーソングライター「つきしろ空」の全国ホールツアー名古屋公演。アリーナC列の良席。CD購入者向け優先抽選外の一般販売分。',
-    imageUrl: '',
-    price: 7500,
-    stock: 22,
-    totalStock: 200,
-    status: 'ACTIVE',
-    startsAt: now.subtract(2, 'hour').toISOString(),
-    endsAt: now.add(8, 'hour').toISOString(),
-    category: 'ライブ・コンサート',
-  },
-  // ── UPCOMING（予告）3件 ──
-  {
-    id: 'fl-013',
-    name: '電音フォル 15周年記念ライブ プレミアム席',
-    description:
-      '人気バーチャルシンガー「電音フォル」の15周年記念特別ライブ。最新AR演出と生オーケストラの競演。プレミアム席は限定200席のみ。',
-    imageUrl: '',
-    price: 25000,
-    stock: 200,
-    totalStock: 200,
-    status: 'UPCOMING',
-    startsAt: now.add(2, 'day').toISOString(),
-    endsAt: now.add(4, 'day').toISOString(),
-    category: 'バーチャルライブ',
-  },
-  {
-    id: 'fl-014',
-    name: 'MOONWAVE × アークスタジオ 限定コラボフィギュア',
-    description:
-      '人気音楽ユニット「MOONWAVE」の代表曲をモチーフにした限定フィギュア。全長22cm・塗装済み完成品。1アカウント1個まで。',
-    imageUrl: '',
-    price: 14800,
-    stock: 80,
-    totalStock: 80,
-    status: 'UPCOMING',
-    startsAt: now.add(1, 'day').add(6, 'hour').toISOString(),
-    endsAt: now.add(3, 'day').toISOString(),
-    category: 'グッズ・フィギュア',
-  },
-  {
-    id: 'fl-015',
-    name: '星海の冒険者 ワールドツアー展 VIP内覧会 招待券',
-    description:
-      '史上最大規模の漫画展「星海の冒険者展」VIP内覧会の招待券。作者複製サイン入り証明書・限定グッズ付き。定員10名。',
-    imageUrl: '',
-    price: 38000,
-    stock: 10,
-    totalStock: 10,
-    status: 'UPCOMING',
-    startsAt: now.add(5, 'day').toISOString(),
-    endsAt: now.add(7, 'day').toISOString(),
-    category: '展覧会・イベント',
-  },
-  // ── SOLD_OUT（売切）2件 ──
-  {
-    id: 'fl-016',
-    name: 'SOLAR BEAR 日本武道館公演 S席チケット',
-    description:
-      'バンド「SOLAR BEAR」の日本武道館公演S席チケット。アリーナに隣接の特等席。秒速完売の人気公演。キャンセル待ち不可。',
-    imageUrl: '',
-    price: 9800,
-    stock: 0,
-    totalStock: 800,
-    status: 'SOLD_OUT',
-    startsAt: now.subtract(3, 'hour').toISOString(),
-    endsAt: now.add(1, 'hour').toISOString(),
-    category: 'ライブ・コンサート',
-  },
-  {
-    id: 'fl-017',
-    name: 'RUSH × FORMA コラボスニーカー',
-    description:
-      'クリエイティブブランド「FORMA」とシューズブランド「RUSH」のコラボスニーカー。完全売り切れ。入荷予定なし。',
-    imageUrl: '',
-    price: 35000,
-    stock: 0,
-    totalStock: 150,
-    status: 'SOLD_OUT',
-    startsAt: now.subtract(4, 'hour').toISOString(),
-    endsAt: now.add(2, 'hour').toISOString(),
-    category: '限定スニーカー',
-  },
-  // ── ENDED（終了）1件 ──
-  {
-    id: 'fl-018',
-    name: '霧島蒼介 アリーナツアー 大阪公演',
-    description:
-      'シンガーソングライター「霧島蒼介」のアリーナツアー大阪公演チケット。販売期間は終了しています。次回公演情報はオフィシャルサイトで確認。',
-    imageUrl: '',
-    price: 8800,
-    stock: 0,
-    totalStock: 1000,
-    status: 'ENDED',
-    startsAt: now.subtract(5, 'day').toISOString(),
-    endsAt: now.subtract(1, 'day').toISOString(),
-    category: 'ライブ・コンサート',
-  },
-]
+export const mockFlashList: FlashItem[] =[]
 
-export const mockFlashList: FlashItem[] = rawFlashList.map((item, idx) => ({
-  viewCount: item.viewCount ?? Math.max(120, 3200 - idx * 140),
-  specifications: item.specifications ?? [
-    { label: '発送時期', value: '決済完了後 2〜4営業日以内に発送' },
-    { label: '配送方法', value: 'ヤマト運輸 / 佐川急便 (全国送料無料)' },
-    { label: '正規品保証', value: '日本国内正規品・シリアル刻印保証' },
-  ],
-  rules: item.rules ?? [
-    'お1人様 1点までの数量限定販売となります。',
-    '転売目的の購入およびBOT等の不正アクセス・スクリプトの使用は禁止です。',
-    '決済確定後のキャンセル・お客様都合による返品・交換は致しかねます。',
-  ],
-  ...item,
-}))
 
-// ===== 抽選 Mock データ（16件）=====
-// ※ すべて架空のイベント・商品です
-// applyDeadline / drawAt から status が自動計算される
 const rawLotteryList: (Omit<LotteryItem, 'viewCount' | 'startsAt'> & { viewCount?: number; startsAt?: string })[] = [
   // ── ACTIVE（応募受付中）10件 ──
   {
@@ -696,8 +397,16 @@ export const api = {
 
   // フラッシュセール一覧（販売中・告知・売切を返す。完全終了は除外）
   async getFlashList(): Promise<FlashItem[]> {
-    await delay(400)
-    return mockFlashList.map((s) => ({ ...s, status: computeFlashStatus(s) })).filter((s) => s.status !== 'ENDED')
+    const { data } = await axios.get<{ code: number; message: string; data: any }>('/api/v1/flash/list')
+    if (data.code !== 0) {
+      throw new Error(data.message || 'Failed to fetch flash list')
+    }
+
+    return (data.data?.flashList || []).map((s: any) => ({
+      ...s,
+      imageUrl: s.imageS3Key || '',
+      status: computeFlashStatus(s),
+    }))
   },
 
   // IDでフラッシュセールを取得する（閲覧数を1増やす）
@@ -752,8 +461,8 @@ export const api = {
         if (!matchesQuery) return false
 
         // 期間フィルター（指定された期間より古い過去データを除外する）
-        if (threshold && dayjs(s.startsAt).isBefore(threshold)) return false
-        return true
+        return !(threshold && dayjs(s.startsAt).isBefore(threshold));
+
       })
 
     const lotteryList = mockLotteryList
@@ -767,8 +476,8 @@ export const api = {
         if (!matchesQuery) return false
 
         // 期間フィルター（指定された期間より古い過去データを除外する）
-        if (threshold && dayjs(l.applyDeadline).isBefore(threshold)) return false
-        return true
+        return !(threshold && dayjs(l.applyDeadline).isBefore(threshold));
+
       })
 
     return { flashList, lotteryList }

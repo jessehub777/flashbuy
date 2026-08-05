@@ -44,6 +44,7 @@ func SetupRouter(env string) *gin.Engine {
 		flashGroup := v1.Group("/flash")
 		{
 			flashGroup.GET("/list", flashController.GetFlashList)
+			flashGroup.GET("/getFlashById/:id", flashController.GetFlashById)
 		}
 	}
 

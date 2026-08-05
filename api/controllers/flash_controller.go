@@ -35,3 +35,29 @@ func (h *FlashController) GetFlashList(c *gin.Context) {
 		"flashList": flashList,
 	})
 }
+
+// GetFlashById FLASH詳細
+// GET /api/v1/flash/:id
+func (h *FlashController) GetFlashById(c *gin.Context) {
+	var flashItem models.FlashItem
+
+	// フラッシュセール商品を取得（idで検索、単行はGetを使う）
+	err := database.DB.Get(&flashItem, "SELECT * FROM flash_items WHERE id = $1", c.Param("id"))
+	if err != nil {
+		logger.Error("フラッシュセール商品の取得に失敗しました", zap.Error(err))
+		response.Error(c, response.CodeSystemError)
+		return
+	}
+	// 閲覧数を1加算
+	_, err = database.DB.Exec("UPDATE flash_items SET view_count = view_count + 1 WHERE id = $1", c.Param("id"))
+	if err != nil {
+		logger.Error("閲覧数の加算に失敗しました", zap.Error(err))
+		response.Error(c, response.CodeSystemError)
+		return
+	}
+
+	// フラッシュセール商品を返す
+	response.Success(c, gin.H{
+		"flashItem": flashItem,
+	})
+}

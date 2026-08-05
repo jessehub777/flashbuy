@@ -3,7 +3,6 @@
 // ※ 登場する人名・グループ名・作品名・ブランド名はすべて架空のものです
 
 import dayjs from 'dayjs'
-import axios from 'axios'
 import type {
   FlashItem,
   LotteryItem,
@@ -15,6 +14,7 @@ import type {
   MockPaymentResult,
   HomeTop10,
 } from '../types'
+import { request, toImageUrl } from './request'
 
 // 少し待ってからデータを返す（ネットワーク遅延を再現する）
 const delay = (ms = 300) => new Promise((r) => setTimeout(r, ms))
@@ -375,47 +375,24 @@ export const mockLotteryApplicationList: LotteryOrderItem[] = [
 export const api = {
   // ホーム画面専用 — 閲覧数（viewCount）が多い人気 Top 10 を取得する API
   async getHomeTop10(): Promise<HomeTop10> {
-    const { data } = await axios.get<{ code: number; message: string; data: any }>('/api/v1/home/top10')
-    if (data.code !== 0) {
-      throw new Error(data.message || 'Failed to fetch home top 10')
+    const res = await request<{ flashList: any[]; lotteryList: any[] }>('/api/v1/home/top10')
+    return {
+      flashList: res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) })),
+      lotteryList: res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) })),
     }
-
-    const flashList = (data.data?.flashList || []).map((s: any) => ({
-      ...s,
-      imageUrl: s.imageS3Key || '',
-      status: computeFlashStatus(s),
-    }))
-
-    const lotteryList = (data.data?.lotteryList || []).map((l: any) => ({
-      ...l,
-      imageUrl: l.imageS3Key || '',
-      status: computeLotteryStatus(l),
-    }))
-
-    return { flashList, lotteryList }
   },
 
   // フラッシュセール一覧（販売中・告知・売切を返す。完全終了は除外）
   async getFlashList(): Promise<FlashItem[]> {
-    const { data } = await axios.get<{ code: number; message: string; data: any }>('/api/v1/flash/list')
-    if (data.code !== 0) {
-      throw new Error(data.message || 'Failed to fetch flash list')
-    }
-
-    return (data.data?.flashList || []).map((s: any) => ({
-      ...s,
-      imageUrl: s.imageS3Key || '',
-      status: computeFlashStatus(s),
-    }))
+    const res = await request<{ flashList: any[] }>('/api/v1/flash/list')
+    return res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) }))
   },
 
   // IDでフラッシュセールを取得する（閲覧数を1増やす）
-  async getFlashById(id: string): Promise<FlashItem | null> {
-    await delay(300)
-    const item = mockFlashList.find((s) => s.id === id)
-    if (!item) return null
-    item.viewCount += 1 // ページが見られたので閲覧数をプラスする
-    return { ...item, status: computeFlashStatus(item) }
+  async getFlashById(id: string): Promise<FlashItem> {
+    const res = await request<{ flashItem: any }>(`/api/v1/flash/getFlashById/${id}`)
+    res.flashItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
+    return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
   // 抽選一覧（予告・受付中・抽選集計中を返す。終了・当落済みは除外）

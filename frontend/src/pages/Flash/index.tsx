@@ -27,7 +27,6 @@ export default function FlashDetail() {
     queryKey: ['flash', id],
     queryFn: () => api.getFlashById(id!),
     enabled: !!id,
-    refetchInterval: 5000,
   })
 
   const { isExpired } = useCountdown(sale?.endsAt ?? '')

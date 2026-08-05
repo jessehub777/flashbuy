@@ -39,7 +39,12 @@ func SetupRouter(env string) *gin.Engine {
 			homeGroup.GET("/top10", homeController.GetTop10)
 		}
 
-		// 今後、flashGroup, lotteryGroup などを追加していく
+		// フラッシュセール関連ルート
+		flashController := controllers.NewFlashController()
+		flashGroup := v1.Group("/flash")
+		{
+			flashGroup.GET("/list", flashController.GetFlashList)
+		}
 	}
 
 	return r

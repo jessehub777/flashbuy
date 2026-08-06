@@ -397,19 +397,15 @@ export const api = {
 
   // 抽選一覧（予告・受付中・抽選集計中を返す。終了・当落済みは除外）
   async getLotteryList(): Promise<LotteryItem[]> {
-    await delay(400)
-    return mockLotteryList
-      .map((l) => ({ ...l, status: computeLotteryStatus(l) }))
-      .filter((l) => l.status === 'UPCOMING' || l.status === 'ACTIVE' || l.status === 'DRAWING')
+    const res = await request<{ lotteryList: any[] }>('/api/v1/lottery/list')
+    return res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) }))
   },
 
   // IDで抽選情報を取得する（閲覧数を1増やす）
-  async getLotteryById(id: string): Promise<LotteryItem | null> {
-    await delay(300)
-    const item = mockLotteryList.find((l) => l.id === id)
-    if (!item) return null
-    item.viewCount += 1 // ページが見られたので閲覧数をプラスする
-    return { ...item, status: computeLotteryStatus(item) }
+  async getLotteryById(id: string): Promise<LotteryItem> {
+    const res = await request<{ lotteryItem: any }>(`/api/v1/lottery/getLotteryById/${id}`)
+    res.lotteryItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
+    return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 
   // 検索 — 名前・説明・カテゴリでキーワードを探す

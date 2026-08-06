@@ -80,8 +80,9 @@ export interface User {
 // ===== API response wrappers =====
 
 export interface ApiResponse<T> {
+  code: number
+  message: string
   data: T
-  message?: string
 }
 
 export interface PaginatedResponse<T> {

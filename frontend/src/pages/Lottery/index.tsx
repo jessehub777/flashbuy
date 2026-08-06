@@ -59,10 +59,6 @@ export default function LotteryDetail() {
           <div
             className="w-full aspect-square rounded-[6px] overflow-hidden relative shadow-xl"
             style={{ background: 'linear-gradient(135deg, #dce4f5, #c5d3ee)' }}>
-            {/* 商品ID表示 */}
-            <div className="absolute top-4 left-4 font-mono text-[11px] tracking-[1px] bg-ink text-paper px-2 py-[3px] rounded-[2px] z-10">
-              {item.id}
-            </div>
             {/* ステータスタグ（予告: パープル, 応募済: エメラルド, 受付中: ブルー, 抽選中: アンバー, 終了: ダークグレー） */}
             <div className="absolute top-4 right-4 flex items-center gap-1.5 z-10">
               {item.status === 'UPCOMING' && !alreadyApplied && (

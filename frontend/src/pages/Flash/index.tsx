@@ -27,7 +27,6 @@ export default function FlashDetail() {
     queryKey: ['flash', id],
     queryFn: () => api.getFlashById(id!),
     enabled: !!id,
-    refetchInterval: 5000,
   })
 
   const { isExpired } = useCountdown(sale?.endsAt ?? '')
@@ -80,10 +79,6 @@ export default function FlashDetail() {
           <div
             className="w-full aspect-square rounded-[6px] overflow-hidden relative shadow-xl"
             style={{ background: 'linear-gradient(135deg, #e4e1d5, #cfccc0)' }}>
-            {/* 商品ID表示 */}
-            <div className="absolute top-4 left-4 font-mono text-[11px] tracking-[1px] bg-ink text-paper px-2 py-[3px] rounded-[2px] z-10">
-              {sale.id}
-            </div>
             {/* ステータスタグ（売切 / 販売終了 / 予告 / SALE） */}
             <div
               className={`absolute top-4 right-4 font-mono text-[10px] tracking-[1.5px] font-semibold px-[9px] py-1 rounded-[2px] z-10 ${

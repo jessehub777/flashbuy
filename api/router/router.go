@@ -44,6 +44,14 @@ func SetupRouter(env string) *gin.Engine {
 		flashGroup := v1.Group("/flash")
 		{
 			flashGroup.GET("/list", flashController.GetFlashList)
+			flashGroup.GET("/getFlashById/:id", flashController.GetFlashById)
+		}
+		// 抽選関連ルート
+		lotteryController := controllers.NewLotteryController()
+		lotteryGroup := v1.Group("/lottery")
+		{
+			lotteryGroup.GET("/list", lotteryController.GetLotteryList)
+			lotteryGroup.GET("/getLotteryById/:id", lotteryController.GetLotteryById)
 		}
 	}
 

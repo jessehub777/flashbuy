@@ -38,10 +38,6 @@ export function FlashTicket({ sale }: FlashTicketProps) {
         {sale.imageUrl && !sale.imageUrl.startsWith('/') ?
           <img src={sale.imageUrl} alt={sale.name} className="w-full h-full object-cover" />
         : <ProductPlaceholder name={sale.name} type="flash" />}
-        {/* シリアルナンバー */}
-        <div className="absolute top-3 left-3 font-mono text-[11px] tracking-[1px] bg-ink text-paper px-2 py-[3px] rounded-[2px] z-10">
-          {sale.id}
-        </div>
         {/* 販売状態タグ */}
         <div
           className={`absolute top-3 right-3 font-mono text-[10px] tracking-[1.5px] font-semibold px-[9px] py-1 rounded-[2px] z-10 ${
@@ -141,10 +137,6 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
         {item.imageUrl && !item.imageUrl.startsWith('/') ?
           <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
         : <ProductPlaceholder name={item.name} type="lottery" />}
-        {/* シリアルナンバー */}
-        <div className="absolute top-3 left-3 font-mono text-[11px] tracking-[1px] bg-ink text-paper px-2 py-[3px] rounded-[2px] z-10">
-          {item.id}
-        </div>
         {/* ステータスタグ（予告: パープル, 応募済: エメラルド, 受付中: ブルー, 抽選中: アンバー, 終了: ダークグレー） */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
           {!applied && item.status === 'UPCOMING' && (

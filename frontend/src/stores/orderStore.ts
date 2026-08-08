@@ -35,7 +35,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   buyStatus: 'idle',
   applications: [],
   applyStatus: 'idle',
-  appliedIds: new Set(['lt-001', 'lt-011']),
+  appliedIds: new Set<string>(),
   payStatus: 'idle',
 
   flashBuy: async (saleId) => {
@@ -44,23 +44,6 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       const result = await api.flashBuy(saleId)
       if (result.status === 'QUEUED') {
         set({ buyStatus: 'queued', unpaidOrderNo: result.orderNo })
-        // Simulate async order confirmation (Lambda worker)
-        setTimeout(() => {
-          set((s) => ({
-            orders: [
-              {
-                id: `ord-${Date.now()}`,
-                orderNo: result.orderNo,
-                saleId,
-                saleName: '',
-                price: 0,
-                status: 'UNPAID' as FlashOrderStatus,
-                createdAt: new Date().toISOString(),
-              },
-              ...s.orders,
-            ],
-          }))
-        }, 1500)
       } else {
         set({ buyStatus: 'sold_out' })
       }

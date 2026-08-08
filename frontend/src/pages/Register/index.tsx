@@ -1,36 +1,37 @@
-// ログインページ — Mock 認証（本番は Amazon Cognito を使う）
+// 新規登録ページ
 import { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 
-export default function Login() {
+export default function Register() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { login, isLoading } = useAuthStore();
+  const { register, isLoading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
-
-  // ログイン前にいたページを覚えておく
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) { setError('メールアドレスとパスワードを入力してください'); return; }
-    try {
-      await login(email, password);
-      // ログイン成功したら元のページに戻る
-      navigate(from, { replace: true });
-    } catch {
-      setError('ログインに失敗しました。もう一度お試しください。');
-    }
-  };
 
-  const handleDemoLogin = (role: 'user' | 'admin') => {
-    const demoEmail = role === 'admin' ? 'admin@flashbuy.demo' : 'user@flashbuy.demo';
-    setEmail(demoEmail);
-    setPassword('Demo1234!');
+    if (!email || !password || !displayName || !confirmPassword) {
+      setError('すべての項目を入力してください');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('パスワードが一致しません');
+      return;
+    }
+
+    try {
+      await register(email, password, displayName);
+      navigate('/login', { replace: true });
+    } catch {
+      setError('登録に失敗しました。もう一度お試しください。');
+    }
   };
 
   return (
@@ -42,34 +43,30 @@ export default function Login() {
             FLASH<span className="text-flash">BUY</span>
           </Link>
           <p className="font-mono text-[12px] text-muted mt-2 tracking-[1px]">
-            アカウントにログイン
+            新規アカウント登録
           </p>
-        </div>
-
-        {/* デモ用ショートカット */}
-        <div className="flex gap-2 mb-6">
-          <button
-            onClick={() => handleDemoLogin('user')}
-            className="flex-1 py-2 border border-white/[0.12] text-muted font-mono text-[11px] tracking-[1px] rounded-[3px] hover:border-white/25 hover:text-paper transition-colors"
-          >
-            USER でデモ
-          </button>
-          <button
-            onClick={() => handleDemoLogin('admin')}
-            className="flex-1 py-2 border border-lottery/30 text-lottery font-mono text-[11px] tracking-[1px] rounded-[3px] hover:border-lottery/60 transition-colors"
-          >
-            ADMIN でデモ
-          </button>
         </div>
 
         {/* フォーム */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1.5">
+              表示名
+            </label>
+            <input
+              type="text"
+              className="input-dark"
+              placeholder="フラッシュタロウ"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1.5">
               メールアドレス
             </label>
             <input
-              id="email"
               type="email"
               className="input-dark"
               placeholder="you@example.com"
@@ -84,13 +81,26 @@ export default function Login() {
               パスワード
             </label>
             <input
-              id="password"
               type="password"
               className="input-dark"
               placeholder=""
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+              autoComplete="new-password"
+            />
+          </div>
+
+          <div>
+            <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1.5">
+              パスワード（確認）
+            </label>
+            <input
+              type="password"
+              className="input-dark"
+              placeholder=""
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
             />
           </div>
 
@@ -103,15 +113,15 @@ export default function Login() {
             className="btn-base bg-flash mt-2 py-3 text-[14px]"
             disabled={isLoading}
           >
-            {isLoading ? 'ログイン中...' : 'ログイン'}
+            {isLoading ? '登録中...' : '登録する'}
           </button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="font-mono text-[12px] text-muted tracking-[0.5px]">
-            アカウントをお持ちでない方は
-            <Link to="/register" className="text-flash ml-1 hover:underline">
-              新規登録
+            既にアカウントをお持ちの方は
+            <Link to="/login" className="text-flash ml-1 hover:underline">
+              ログインはこちら
             </Link>
           </p>
         </div>

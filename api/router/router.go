@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"flashbuy/api/controllers"
+	"flashbuy/api/middleware"
 	"flashbuy/api/pkg/auth"
 
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,14 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 			authGroup.POST("/register", authController.Register)
 			authGroup.POST("/login", authController.Login)
 			authGroup.POST("/logout", authController.Logout)
+		}
+
+		// マイページルート（認証必須）
+		myController := controllers.NewMyController()
+		myGroup := v1.Group("/my", middleware.AuthRequired())
+		{
+			myGroup.GET("/flashOrderList", myController.GetMyFlashOrderList)
+			myGroup.GET("/lotteryOrderList", myController.GetMyLotteryOrderList)
 		}
 	}
 

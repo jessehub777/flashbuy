@@ -102,12 +102,12 @@ export const api = {
 
   // マイページ — 注文・応募履歴を取得する
   async getMyFlashOrderList(): Promise<FlashOrderItem[]> {
-    const res = await request<{ flashOrderList: FlashOrderItem[] }>('/api/v1/my/flashOrders')
+    const res = await request<{ flashOrderList: FlashOrderItem[] }>('/api/v1/my/flashOrderList')
     return res.flashOrderList
   },
 
   async getMyLotteryApplicationList(): Promise<LotteryOrderItem[]> {
-    const res = await request<{ lotteryOrderList: LotteryOrderItem[] }>('/api/v1/my/lotteryApplications')
+    const res = await request<{ lotteryOrderList: LotteryOrderItem[] }>('/api/v1/my/lotteryOrderList')
     return res.lotteryOrderList
   },
 

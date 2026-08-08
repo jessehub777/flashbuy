@@ -21,3 +21,8 @@ aws:
   access_key_id: ""
   secret_access_key: ""
   s3_bucket_name: ""
+
+cognito:
+  region: ap-northeast-1
+  user_pool_id: "ap-northeast-1_sQqGey4kz"
+  app_client_id: "6kc985njnqt981ifa8qcfej2kd"

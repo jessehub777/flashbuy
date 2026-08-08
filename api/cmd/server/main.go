@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"flashbuy/api/config"
+	"flashbuy/api/pkg/auth"
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
@@ -46,8 +47,20 @@ func main() {
 	}
 	defer cache.CloseRedis()
 
-	// 5. Gin HTTPサーバーの設定とルーティング
-	r := router.SetupRouter(cfg.App.Env)
+	// 5. Cognitoクライアントの初期化
+	cognitoClient, err := auth.NewCognitoClient(&cfg.Cognito)
+	if err != nil {
+		logger.Fatal("Cognitoクライアントの初期化に失敗しました", zap.Error(err))
+	}
+
+	// 6. JWKS（JWT検証用の公開鍵）の初期化
+	if err := auth.InitJWKS(cfg.Cognito.Region, cfg.Cognito.UserPoolID); err != nil {
+		logger.Fatal("JWKSの初期化に失敗しました", zap.Error(err))
+	}
+	defer auth.CloseJWKS()
+
+	// 7. Gin HTTPサーバーの設定とルーティング
+	r := router.SetupRouter(cfg.App.Env, cognitoClient)
 
 	// サーバーインスタンスの作成
 	srv := &http.Server{

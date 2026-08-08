@@ -13,6 +13,13 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
 	AWS      AWSConfig      `mapstructure:"aws"`
+	Cognito  CognitoConfig  `mapstructure:"cognito"`
+}
+
+type CognitoConfig struct {
+	Region      string `mapstructure:"region"`
+	UserPoolID  string `mapstructure:"user_pool_id"`
+	AppClientID string `mapstructure:"app_client_id"`
 }
 
 // AppConfig はアプリケーション自体の設定です。

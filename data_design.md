@@ -14,7 +14,7 @@
 export type FlashStatus = 'UPCOMING' | 'ACTIVE' | 'SOLD_OUT' | 'ENDED'
 
 export interface FlashItem {
-  id: string // "fl-20260730-0042"
+  id: string
   name: string
   description: string
   imageUrl: string // S3 Object URL
@@ -39,7 +39,7 @@ export interface FlashItem {
 export type LotteryStatus = 'UPCOMING' | 'ACTIVE' | 'DRAWING' | 'ENDED'
 
 export interface LotteryItem {
-  id: string // "lt-20260730-0041"
+  id: string
   name: string
   description: string
   imageUrl: string
@@ -132,19 +132,14 @@ export interface HomeTop10 {
 
 ```sql
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cognito_sub   VARCHAR(128) UNIQUE NOT NULL,  -- Cognito User Pool Subject
+  id            UUID PRIMARY KEY,            -- Cognito sub（認証基盤が発行した固定ID）
   email         VARCHAR(255) UNIQUE NOT NULL,
-  pwd           VARCHAR(255) NOT NULL,
   display_name  VARCHAR(100) NOT NULL,
   role          VARCHAR(20) NOT NULL DEFAULT 'user'
                 CHECK (role IN ('user', 'admin')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_cognito_sub ON users(cognito_sub);
 ```
 
 ### 2-2. `flash_items` テーブル

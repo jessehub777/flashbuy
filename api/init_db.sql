@@ -1,10 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
-  cognito_sub VARCHAR(128) UNIQUE NOT NULL,
+  id UUID PRIMARY KEY,               -- Cognito sub（認証基盤が発行した固定ID）
   email VARCHAR(255) UNIQUE NOT NULL,
-  pwd VARCHAR(255) NOT NULL,
   display_name VARCHAR(100) NOT NULL,
   role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW (),
@@ -91,21 +89,17 @@ flash_items,
 users CASCADE;
 
 INSERT INTO
-  users (id, cognito_sub, email, pwd, display_name, role)
+  users (id, email, display_name, role)
 VALUES
   (
-    '11111111-1111-1111-1111-111111111111',
-    'mock-cognito-sub-user',
-    'user@flashbuy.com',
-    '123123',
+    '9744da98-5011-70f4-36dc-f619e87e5ce2',
+    'user@flashbuy.demo',
     '王迎新',
     'user'
   ),
   (
-    '99999999-9999-9999-9999-999999999999',
-    'mock-cognito-sub-admin',
-    'admin@flashbuy.com',
-    '123123',
+    'c7943ac8-d081-7072-c66f-7226d92bbf4e',
+    'admin@flashbuy.demo',
     'オーナー',
     'admin'
   );

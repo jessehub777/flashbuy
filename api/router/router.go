@@ -4,12 +4,13 @@ import (
 	"net/http"
 
 	"flashbuy/api/controllers"
+	"flashbuy/api/pkg/auth"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SetupRouter はGinのルーターを初期化し、すべてのルートを登録します
-func SetupRouter(env string) *gin.Engine {
+func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 	// 実行環境が本番環境であればGinのモードをReleaseに設定
 	if env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
@@ -52,6 +53,22 @@ func SetupRouter(env string) *gin.Engine {
 		{
 			lotteryGroup.GET("/list", lotteryController.GetLotteryList)
 			lotteryGroup.GET("/getLotteryById/:id", lotteryController.GetLotteryById)
+		}
+
+		// 検索関連ルート
+		searchController := controllers.NewSearchController()
+		searchGroup := v1.Group("/search")
+		{
+			searchGroup.GET("", searchController.Search)
+		}
+
+		// 認証ルート
+		authController := controllers.NewAuthController(cognitoClient)
+		authGroup := v1.Group("/auth")
+		{
+			authGroup.POST("/register", authController.Register)
+			authGroup.POST("/login", authController.Login)
+			authGroup.POST("/logout", authController.Logout)
 		}
 	}
 

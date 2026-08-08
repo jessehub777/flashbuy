@@ -1,6 +1,38 @@
 import axios from 'axios'
 import type { ApiResponse } from '../types'
 
+// トークン取得用のゲッター（authStoreのcircular dependencyを回避）
+let getToken: (() => string | null) | null = null
+let onUnauthorized: (() => void) | null = null
+
+export function setupAuth(
+  tokenGetter: () => string | null,
+  unauthorizedHandler: () => void
+) {
+  getToken = tokenGetter
+  onUnauthorized = unauthorizedHandler
+}
+
+// リクエスト時にトークンを自動付与
+axios.interceptors.request.use((config) => {
+  const token = getToken?.()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// 401レスポンス時にログアウト
+axios.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (error.response?.status === 401) {
+      onUnauthorized?.()
+    }
+    return Promise.reject(error)
+  }
+)
+
 // バックエンドから返るエラー（code + message）を持つ例外クラス
 export class ApiError extends Error {
   code: number

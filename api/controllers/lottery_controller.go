@@ -42,39 +42,91 @@ func (h *LotteryController) GetLotteryList(c *gin.Context) {
 	})
 }
 
+// LotteryItemCache は抽選詳細のキャッシュ用DTOです。
+// viewCountとapplyCountはリアルタイムに変わるためキャッシュせず、レスポンス時にDBから取得して合成します
+type LotteryItemCache struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	ImageS3Key    *string   `json:"imageS3Key,omitempty"`
+	DetailS3Key   *string   `json:"detailS3Key,omitempty"`
+	Price         int       `json:"price"`
+	ChosenPrice   int       `json:"chosenPrice"`
+	WinnerCount   int       `json:"winnerCount"`
+	StartsAt      time.Time `json:"startsAt"`
+	ApplyDeadline time.Time `json:"applyDeadline"`
+	DrawAt        time.Time `json:"drawAt"`
+	Category      string    `json:"category"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+// LotteryDetailResponse は抽選詳細のレスポンスDTOです。
+// キャッシュ（安定フィールド）にリアルタイムのapplyCount / viewCountを合成して返します
+type LotteryDetailResponse struct {
+	LotteryItemCache
+	ApplyCount int   `json:"applyCount"`
+	ViewCount  int64 `json:"viewCount"`
+}
+
 // GetLotteryById Lottery詳細
 // GET /api/v1/lottery/getLotteryById/:id
 func (h *LotteryController) GetLotteryById(c *gin.Context) {
 	id := c.Param("id")
 
-	// キャッシュ優先で取得。TTLは「抽選日まで」に設定する
+	// 安定フィールドをキャッシュから取得。TTLは「抽選日まで」に設定する
 	// （抽選情報は抽選日まで変わらないため長めのキャッシュが有効）
 	// 注意: adminが抽選を編集した場合は cache.Del(cache.KeyLotteryDetail+id) で無効化すること
-	lotteryItem, err := cache.RememberUntil(cache.KeyLotteryDetail+id, func() (models.LotteryItem, error) {
+	cached, err := cache.RememberUntil(cache.KeyLotteryDetail+id, func() (LotteryItemCache, error) {
 		var item models.LotteryItem
 		// 抽選商品を取得（idで検索、単行はGetを使う）
 		err := database.DB.Get(&item, "SELECT * FROM lottery_items WHERE id = $1", id)
-		return item, err
-	}, func(item models.LotteryItem) time.Duration {
+		if err != nil {
+			return LotteryItemCache{}, err
+		}
+		return LotteryItemCache{
+			ID:            item.ID,
+			Name:          item.Name,
+			Description:   item.Description,
+			ImageS3Key:    item.ImageS3Key,
+			DetailS3Key:   item.DetailS3Key,
+			Price:         item.Price,
+			ChosenPrice:   item.ChosenPrice,
+			WinnerCount:   item.WinnerCount,
+			StartsAt:      item.StartsAt,
+			ApplyDeadline: item.ApplyDeadline,
+			DrawAt:        item.DrawAt,
+			Category:      item.Category,
+			CreatedAt:     item.CreatedAt,
+		}, nil
+	}, func(item LotteryItemCache) time.Duration {
 		// 抽選日までをTTLにする（抽選済みならキャッシュしない）
-		ttl := time.Until(item.DrawAt)
-		return ttl
+		return time.Until(item.DrawAt)
 	})
 	if err != nil {
 		logger.Error("抽選商品の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
-	// 閲覧数を1加算
-	_, err = database.DB.Exec("UPDATE lottery_items SET view_count = view_count + 1 WHERE id = $1", id)
+
+	// 閲覧数を1加算しつつ、最新のviewCountとapplyCountを同時に取得する（1クエリ）
+	// applyCountは「読み取りのみ」で、この処理では増やさない
+	var viewCount int64
+	var applyCount int
+	err = database.DB.QueryRow(
+		"UPDATE lottery_items SET view_count = view_count + 1 WHERE id = $1 RETURNING view_count, apply_count", id,
+	).Scan(&viewCount, &applyCount)
 	if err != nil {
 		logger.Error("閲覧数の加算に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
 
-	// 抽選商品を返す
+	// キャッシュ（安定フィールド）+ リアルタイム値（applyCount / viewCount）を合成して返す
 	response.Success(c, gin.H{
-		"lotteryItem": lotteryItem,
+		"lotteryItem": LotteryDetailResponse{
+			LotteryItemCache: cached,
+			ApplyCount:       applyCount,
+			ViewCount:        viewCount,
+		},
 	})
 }

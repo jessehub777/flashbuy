@@ -17,6 +17,10 @@ const (
 	KeyFlashList   = "flash:list"
 	KeyLotteryList = "lottery:list"
 	KeyHomeTop10   = "home:top10"
+	// KeyFlashDetail / KeyLotteryDetail は商品詳細キャッシュのプレフィックス。
+	// 実際のキーは `flash:item:{id}` のようにidを連結して使う
+	KeyFlashDetail   = "flash:item:"
+	KeyLotteryDetail = "lottery:item:"
 )
 
 // TTL定数 — キャッシュの生存時間をここで一元管理する
@@ -108,6 +112,34 @@ func Remember[T any](key string, ttl time.Duration, loader func() (T, error)) (T
 
 	// 3. キャッシュに書き戻す（失敗してもエラーにしない）
 	_ = SetJSON(key, data, ttl)
+
+	return data, nil
+}
+
+// RememberUntil はRememberの変種で、キャッシュのTTLをloaderの結果から動的に決める場合に使う
+// ttlCalcが0以下の時間を返した場合はキャッシュに書き込まない
+// 例: 商品詳細は「販売終了時刻まで」をTTLにする
+func RememberUntil[T any](key string, loader func() (T, error), ttlCalc func(T) time.Duration) (T, error) {
+	// 1. キャッシュを確認
+	var cached T
+	if hit, err := GetJSON(key, &cached); err != nil {
+		// Redis障害時はログを残してDBにフォールバックする
+		logger.Info("キャッシュ障害、DBにフォールバックします", zap.String("key", key), zap.Error(err))
+	} else if hit {
+		return cached, nil
+	}
+
+	// 2. ミス時（またはRedis障害時）はDBから取得
+	data, err := loader()
+	if err != nil {
+		return data, err
+	}
+
+	// 3. TTLを動的に計算してキャッシュに書き戻す（TTL<=0なら書き込まない）
+	ttl := ttlCalc(data)
+	if ttl > 0 {
+		_ = SetJSON(key, data, ttl)
+	}
 
 	return data, nil
 }

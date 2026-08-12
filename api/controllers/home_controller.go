@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"flashbuy/api/models"
+	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
 	"flashbuy/api/pkg/response"
@@ -18,30 +19,39 @@ func NewHomeController() *HomeController {
 	return &HomeController{}
 }
 
+// top10Data はホームのTop10レスポンスデータです
+type top10Data struct {
+	FlashList   []models.FlashItem   `json:"flashList"`
+	LotteryList []models.LotteryItem `json:"lotteryList"`
+}
+
 // GetTop10 は人気のフラッシュセールと抽選商品のトップ10を返します
 // GET /api/v1/home/top10
 func (h *HomeController) GetTop10(c *gin.Context) {
-	var flashList []models.FlashItem
-	var lotteryList []models.LotteryItem
+	// キャッシュ優先で取得（TTL 30秒）。ミス時はDBから取得してキャッシュに書き戻す
+	data, err := cache.Remember(cache.KeyHomeTop10, cache.TTLList, func() (top10Data, error) {
+		var flashList []models.FlashItem
+		// フラッシュセール商品 Top 10 を取得 (閲覧数降順)
+		if err := database.DB.Select(&flashList, "SELECT * FROM flash_items WHERE ends_at > now() ORDER BY view_count DESC LIMIT 10"); err != nil {
+			return top10Data{}, err
+		}
 
-	// 1. フラッシュセール商品 Top 10 を取得 (閲覧数降順)
-	err := database.DB.Select(&flashList, "SELECT * FROM flash_items WHERE ends_at > now() ORDER BY view_count DESC LIMIT 10")
-	if err != nil {
-		logger.Error("フラッシュセール商品の取得に失敗しました", zap.Error(err))
-		response.Error(c, response.CodeSystemError)
-		return
-	}
+		var lotteryList []models.LotteryItem
+		// 抽選商品 Top 10 を取得 (閲覧数降順)
+		if err := database.DB.Select(&lotteryList, "SELECT * FROM lottery_items WHERE draw_at > now() ORDER BY view_count DESC LIMIT 10"); err != nil {
+			return top10Data{}, err
+		}
 
-	// 2. 抽選商品 Top 10 を取得 (閲覧数降順)
-	err = database.DB.Select(&lotteryList, "SELECT * FROM lottery_items WHERE draw_at > now() ORDER BY view_count DESC LIMIT 10")
+		return top10Data{FlashList: flashList, LotteryList: lotteryList}, nil
+	})
 	if err != nil {
-		logger.Error("抽選商品の取得に失敗しました", zap.Error(err))
+		logger.Error("ホームTop10の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
 
 	response.Success(c, gin.H{
-		"flashList":   flashList,
-		"lotteryList": lotteryList,
+		"flashList":   data.FlashList,
+		"lotteryList": data.LotteryList,
 	})
 }

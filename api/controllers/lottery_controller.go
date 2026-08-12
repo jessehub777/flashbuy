@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"time"
+
 	"flashbuy/api/models"
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
@@ -41,19 +43,30 @@ func (h *LotteryController) GetLotteryList(c *gin.Context) {
 }
 
 // GetLotteryById Lottery詳細
-// GET /api/v1/lottery/:id
+// GET /api/v1/lottery/getLotteryById/:id
 func (h *LotteryController) GetLotteryById(c *gin.Context) {
-	var lotteryItem models.LotteryItem
+	id := c.Param("id")
 
-	// 抽選商品を取得（idで検索、単行はGetを使う）
-	err := database.DB.Get(&lotteryItem, "SELECT * FROM lottery_items WHERE id = $1", c.Param("id"))
+	// キャッシュ優先で取得。TTLは「抽選日まで」に設定する
+	// （抽選情報は抽選日まで変わらないため長めのキャッシュが有効）
+	// 注意: adminが抽選を編集した場合は cache.Del(cache.KeyLotteryDetail+id) で無効化すること
+	lotteryItem, err := cache.RememberUntil(cache.KeyLotteryDetail+id, func() (models.LotteryItem, error) {
+		var item models.LotteryItem
+		// 抽選商品を取得（idで検索、単行はGetを使う）
+		err := database.DB.Get(&item, "SELECT * FROM lottery_items WHERE id = $1", id)
+		return item, err
+	}, func(item models.LotteryItem) time.Duration {
+		// 抽選日までをTTLにする（抽選済みならキャッシュしない）
+		ttl := time.Until(item.DrawAt)
+		return ttl
+	})
 	if err != nil {
 		logger.Error("抽選商品の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
 	// 閲覧数を1加算
-	_, err = database.DB.Exec("UPDATE lottery_items SET view_count = view_count + 1 WHERE id = $1", c.Param("id"))
+	_, err = database.DB.Exec("UPDATE lottery_items SET view_count = view_count + 1 WHERE id = $1", id)
 	if err != nil {
 		logger.Error("閲覧数の加算に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)

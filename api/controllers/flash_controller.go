@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"time"
+
 	"flashbuy/api/models"
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
@@ -41,19 +43,29 @@ func (h *FlashController) GetFlashList(c *gin.Context) {
 }
 
 // GetFlashById FLASH詳細
-// GET /api/v1/flash/:id
+// GET /api/v1/flash/getFlashById/:id
 func (h *FlashController) GetFlashById(c *gin.Context) {
-	var flashItem models.FlashItem
+	id := c.Param("id")
 
-	// フラッシュセール商品を取得（idで検索、単行はGetを使う）
-	err := database.DB.Get(&flashItem, "SELECT * FROM flash_items WHERE id = $1", c.Param("id"))
+	// キャッシュ優先で取得。TTLは「販売終了時刻まで」に設定する
+	// （商品詳細は販売期間中変わらないため長めのキャッシュが有効）
+	// 注意: adminが商品を編集した場合は cache.Del(cache.KeyFlashDetail+id) で無効化すること
+	flashItem, err := cache.RememberUntil(cache.KeyFlashDetail+id, func() (models.FlashItem, error) {
+		var item models.FlashItem
+		// フラッシュセール商品を取得（idで検索、単行はGetを使う）
+		err := database.DB.Get(&item, "SELECT * FROM flash_items WHERE id = $1", id)
+		return item, err
+	}, func(item models.FlashItem) time.Duration {
+		// 販売終了時刻までをTTLにする（終了済みならキャッシュしない）
+		return time.Until(item.EndsAt)
+	})
 	if err != nil {
 		logger.Error("フラッシュセール商品の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
 	// 閲覧数を1加算
-	_, err = database.DB.Exec("UPDATE flash_items SET view_count = view_count + 1 WHERE id = $1", c.Param("id"))
+	_, err = database.DB.Exec("UPDATE flash_items SET view_count = view_count + 1 WHERE id = $1", id)
 	if err != nil {
 		logger.Error("閲覧数の加算に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)

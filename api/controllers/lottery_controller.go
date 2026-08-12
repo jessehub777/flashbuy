@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"flashbuy/api/models"
+	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
 	"flashbuy/api/pkg/response"
@@ -21,10 +22,13 @@ func NewLotteryController() *LotteryController {
 // GetLotteryList は一覧画面で抽選商品を返します
 // GET /api/v1/lottery/list
 func (h *LotteryController) GetLotteryList(c *gin.Context) {
-	var lotteryList []models.LotteryItem
-
-	// 抽選商品リスト を取得 (閲覧数降順)、完全終了は除外
-	err := database.DB.Select(&lotteryList, "SELECT * FROM public.lottery_items WHERE draw_at > now() ORDER BY view_count DESC")
+	// キャッシュ優先で取得（TTL 30秒）。ミス時はDBから取得してキャッシュに書き戻す
+	lotteryList, err := cache.Remember(cache.KeyLotteryList, cache.TTLList, func() ([]models.LotteryItem, error) {
+		var list []models.LotteryItem
+		// 抽選商品リスト を取得 (閲覧数降順)、完全終了は除外
+		err := database.DB.Select(&list, "SELECT * FROM lottery_items WHERE draw_at > now() ORDER BY view_count DESC")
+		return list, err
+	})
 	if err != nil {
 		logger.Error("抽選商品の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)

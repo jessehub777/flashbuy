@@ -55,10 +55,9 @@ export const api = {
     return res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) }))
   },
 
-  // IDでフラッシュセールを取得する（閲覧数を1増やす）
+  // IDでフラッシュセールを取得する（バックエンド側で閲覧数+1済みの値を返す）
   async getFlashById(id: string): Promise<FlashItem> {
     const res = await request<{ flashItem: any }>(`/api/v1/flash/getFlashById/${id}`)
-    res.flashItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
     return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
@@ -68,10 +67,9 @@ export const api = {
     return res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) }))
   },
 
-  // IDで抽選情報を取得する（閲覧数を1増やす）
+  // IDで抽選情報を取得する（バックエンド側で閲覧数+1済みの値を返す）
   async getLotteryById(id: string): Promise<LotteryItem> {
     const res = await request<{ lotteryItem: any }>(`/api/v1/lottery/getLotteryById/${id}`)
-    res.lotteryItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
     return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 

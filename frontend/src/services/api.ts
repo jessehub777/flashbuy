@@ -126,9 +126,17 @@ export const api = {
     return res.lotteryItem
   },
 
-  // ログイン
+  // ログイン（IDトークン + リフレッシュトークン）
   async login(email: string, password: string) {
-    return requestPost<{ user: User; token: string }>('/api/v1/auth/login', { email, password })
+    return requestPost<{ user: User; token: string; refreshToken: string }>('/api/v1/auth/login', {
+      email,
+      password,
+    })
+  },
+
+  // リフレッシュトークンで新しいIDトークンを取得（トークン自動更新）
+  async refreshToken(refreshToken: string) {
+    return requestPost<{ token: string }>('/api/v1/auth/refresh', { refreshToken })
   },
 
   // ログアウト

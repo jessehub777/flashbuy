@@ -79,8 +79,8 @@ func (c *CognitoClient) ConfirmUser(ctx context.Context, email string) error {
 	return nil
 }
 
-// Login はユーザーを認証してIDトークンを返します
-func (c *CognitoClient) Login(ctx context.Context, email, password string) (string, error) {
+// Login はユーザーを認証してIDトークンとリフレッシュトークンを返します
+func (c *CognitoClient) Login(ctx context.Context, email, password string) (idToken string, refreshToken string, err error) {
 	input := &cip.InitiateAuthInput{
 		ClientId: &c.appClientID,
 		AuthFlow: types.AuthFlowTypeUserPasswordAuth,
@@ -92,11 +92,40 @@ func (c *CognitoClient) Login(ctx context.Context, email, password string) (stri
 
 	result, err := c.client.InitiateAuth(ctx, input)
 	if err != nil {
-		return "", fmt.Errorf("Cognito認証に失敗: %w", err)
+		return "", "", fmt.Errorf("Cognito認証に失敗: %w", err)
 	}
 
 	if result.AuthenticationResult == nil || result.AuthenticationResult.IdToken == nil {
-		return "", fmt.Errorf("Cognitoからトークンが返されませんでした")
+		return "", "", fmt.Errorf("Cognitoからトークンが返されませんでした")
+	}
+
+	// リフレッシュトークンが返されない場合は空文字（その場合は自動更新は行えない）
+	var refresh string
+	if result.AuthenticationResult.RefreshToken != nil {
+		refresh = *result.AuthenticationResult.RefreshToken
+	}
+
+	return *result.AuthenticationResult.IdToken, refresh, nil
+}
+
+// RefreshToken はリフレッシュトークンを使って新しいIDトークンを取得します
+// IDトークンの有効期限切れ時に、ユーザー再ログインなしで自動更新するために使う
+func (c *CognitoClient) RefreshToken(ctx context.Context, refreshToken string) (string, error) {
+	input := &cip.InitiateAuthInput{
+		ClientId: &c.appClientID,
+		AuthFlow: types.AuthFlowTypeRefreshTokenAuth,
+		AuthParameters: map[string]string{
+			"REFRESH_TOKEN": refreshToken,
+		},
+	}
+
+	result, err := c.client.InitiateAuth(ctx, input)
+	if err != nil {
+		return "", fmt.Errorf("Cognitoトークンの更新に失敗: %w", err)
+	}
+
+	if result.AuthenticationResult == nil || result.AuthenticationResult.IdToken == nil {
+		return "", fmt.Errorf("Cognitoから新しいIDトークンが返されませんでした")
 	}
 
 	return *result.AuthenticationResult.IdToken, nil

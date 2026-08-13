@@ -22,7 +22,6 @@ func NewMyController() *MyController {
 // FlashOrderDTO はマイページ用のフラッシュ注文レスポンスです（商品名をJOINで取得）
 type FlashOrderDTO struct {
 	ID        string     `db:"id" json:"id"`
-	OrderNo   string     `db:"order_no" json:"orderNo"`
 	SaleID    string     `db:"sale_id" json:"saleId"`
 	SaleName  string     `db:"sale_name" json:"saleName"`
 	Price     int        `db:"price" json:"price"`
@@ -53,7 +52,7 @@ func (h *MyController) GetMyFlashOrderList(c *gin.Context) {
 
 	var flashOrderList []FlashOrderDTO
 	err := database.DB.Select(&flashOrderList, `
-		SELECT fo.id, fo.order_no, fo.flash_id AS sale_id, fi.name AS sale_name,
+		SELECT fo.id, fo.flash_id AS sale_id, fi.name AS sale_name,
 		       fo.price, fo.status, fo.created_at, fo.paid_at
 		FROM flash_orders fo
 		JOIN flash_items fi ON fi.id = fo.flash_id

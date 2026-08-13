@@ -6,7 +6,6 @@ import { api } from '../services/api'
 interface OrderState {
   // Flash orders
   orders: FlashOrderItem[]
-  unpaidOrderNo: string | null
   buyStatus: 'idle' | 'queuing' | 'queued' | 'sold_out' | 'error'
 
   // Lottery applications
@@ -31,7 +30,6 @@ interface OrderState {
 
 export const useOrderStore = create<OrderState>((set, get) => ({
   orders: [],
-  unpaidOrderNo: null,
   buyStatus: 'idle',
   applications: [],
   applyStatus: 'idle',
@@ -39,11 +37,11 @@ export const useOrderStore = create<OrderState>((set, get) => ({
   payStatus: 'idle',
 
   flashBuy: async (saleId) => {
-    set({ buyStatus: 'queuing', unpaidOrderNo: null })
+    set({ buyStatus: 'queuing' })
     try {
       const result = await api.flashBuy(saleId)
       if (result.status === 'QUEUED') {
-        set({ buyStatus: 'queued', unpaidOrderNo: result.orderNo })
+        set({ buyStatus: 'queued' })
       } else {
         set({ buyStatus: 'sold_out' })
       }
@@ -102,7 +100,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ applications })
   },
 
-  resetBuyStatus: () => set({ buyStatus: 'idle', unpaidOrderNo: null }),
+  resetBuyStatus: () => set({ buyStatus: 'idle' }),
   resetApplyStatus: () => set({ applyStatus: 'idle' }),
   resetPayStatus: () => set({ payStatus: 'idle' }),
   isApplied: (lotteryId) => get().appliedIds.has(lotteryId),

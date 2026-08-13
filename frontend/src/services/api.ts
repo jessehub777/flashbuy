@@ -89,7 +89,7 @@ export const api = {
   },
 
   // フラッシュ購入 — 在庫確認→注文投入
-  async flashBuy(saleId: string): Promise<{ orderNo: string; status: 'QUEUED' | 'SOLD_OUT' }> {
+  async flashBuy(saleId: string): Promise<{ status: 'QUEUED' | 'SOLD_OUT' }> {
     return requestPost('/api/v1/flash/buy', { saleId })
   },
 

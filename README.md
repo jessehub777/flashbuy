@@ -137,7 +137,7 @@
       ├─ 在庫なし → 「売り切れ」を返却
       └─ 成功 → 継続
    ⑤ SQS メッセージ送信 (order-create-queue)
-   ⑥ レスポンス { orderNo, status: "QUEUED" } を返却
+   ⑥ レスポンス { status: "QUEUED" } を返却
    ↓ 非同期処理
 [Lambda - OrderCreator]
    ⑦ SQS メッセージを受信・処理

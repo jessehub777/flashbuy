@@ -137,7 +137,7 @@
       ├─ 库存不足 → 返回“已售罄”
       └─ 成功 → 继续
    ⑤ SQS 发送消息 (order-create-queue)
-   ⑥ 返回响应 { orderNo, status: "QUEUED" }
+   ⑥ 返回响应 { status: "QUEUED" }
    ↓ 异步处理
 [Lambda - OrderCreator]
    ⑦ 消费 SQS 消息

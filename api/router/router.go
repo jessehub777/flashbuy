@@ -47,6 +47,7 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 		{
 			flashGroup.GET("/list", flashController.GetFlashList)
 			flashGroup.GET("/getFlashById/:id", flashController.GetFlashById)
+			flashGroup.POST("/buy", middleware.AuthRequired(), flashController.BuyFlash)
 		}
 		// 抽選関連ルート
 		lotteryController := controllers.NewLotteryController()

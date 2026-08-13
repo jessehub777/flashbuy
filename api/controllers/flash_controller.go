@@ -104,14 +104,21 @@ func (h *FlashController) GetFlashById(c *gin.Context) {
 		return
 	}
 
-	// 閲覧数を1加算しつつ、最新のviewCountとstockを同時に取得する（1クエリ）
+	// 閲覧数を1加算しつつ、最新のviewCountを取得する
 	var viewCount int64
-	var stock int
 	err = database.DB.QueryRow(
-		"UPDATE flash_items SET view_count = view_count + 1 WHERE id = $1 RETURNING view_count, stock", id,
-	).Scan(&viewCount, &stock)
+		"UPDATE flash_items SET view_count = view_count + 1 WHERE id = $1 RETURNING view_count", id,
+	).Scan(&viewCount)
 	if err != nil {
 		logger.Error("閲覧数の加算に失敗しました", zap.Error(err))
+		response.Error(c, response.CodeSystemError)
+		return
+	}
+
+	// 在庫はRedisから取得（プレヒート済みならRedis、未プレヒートならDBからロードして返す）
+	stock, err := getFlashStock(id)
+	if err != nil {
+		logger.Error("在庫の取得に失敗しました", zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
@@ -124,4 +131,23 @@ func (h *FlashController) GetFlashById(c *gin.Context) {
 			ViewCount:      viewCount,
 		},
 	})
+}
+
+// getFlashStock はフラッシュ商品の在庫を取得します。
+// Redisにプレヒート済みならそれを返し、未プレヒートならDBからロードしてRedisにプレヒートする
+func getFlashStock(id string) (int, error) {
+	// Redisに在庫があればそれを返す
+	if stock, ok, err := cache.GetStock(id); err == nil && ok {
+		return stock, nil
+	}
+
+	// 未プレヒート: DBから現在の在庫をロードしてRedisに載せる
+	var stock int
+	if err := database.DB.Get(&stock, "SELECT stock FROM flash_items WHERE id = $1", id); err != nil {
+		return 0, err
+	}
+	if err := cache.InitStock(id, stock, 0); err != nil {
+		return 0, err
+	}
+	return stock, nil
 }

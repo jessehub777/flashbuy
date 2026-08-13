@@ -7,7 +7,6 @@ import type { PaymentMethod } from '../types'
 
 interface PaymentMockModalProps {
   orderId: string
-  orderNo: string
   amount: number
   onClose: () => void
   onSuccess: () => void
@@ -19,7 +18,7 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
   { id: 'bank_transfer', label: '銀行振込', icon: '🏦' },
 ]
 
-export default function PaymentMockModal({ orderId, orderNo, amount, onClose, onSuccess }: PaymentMockModalProps) {
+export default function PaymentMockModal({ orderId, amount, onClose, onSuccess }: PaymentMockModalProps) {
   const { payOrder, payStatus, resetPayStatus } = useOrderStore()
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('credit_card')
 
@@ -61,7 +60,6 @@ export default function PaymentMockModal({ orderId, orderNo, amount, onClose, on
           <div className="bg-ink border border-white/[0.08] rounded-[4px] p-4 mb-5">
             <div className="flex justify-between items-center">
               <div>
-                <div className="font-mono text-[10px] text-muted tracking-[1.5px] mb-1">ORDER: {orderNo}</div>
                 <div className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: UNPAID</div>
               </div>
               <div className="font-oswald font-bold text-[28px] text-flash">¥{amount.toLocaleString()}</div>

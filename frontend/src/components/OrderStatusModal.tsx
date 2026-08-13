@@ -1,5 +1,5 @@
 // OrderStatusModal — shows flash buy result and order status
-// State machine: QUEUING → QUEUED (orderNo) → (WAITING via Lambda) → PAID after payment
+// State machine: QUEUING → QUEUED → (WAITING via Lambda) → PAID after payment
 import { useEffect } from 'react'
 import { useOrderStore } from '../stores/orderStore'
 
@@ -8,11 +8,11 @@ interface OrderStatusModalProps {
   saleName: string
   price: number
   onClose: () => void
-  onProceedPayment: (orderNo: string) => void
+  onProceedPayment: () => void
 }
 
 export default function OrderStatusModal({ saleName, price, onClose, onProceedPayment }: OrderStatusModalProps) {
-  const { buyStatus, unpaidOrderNo, resetBuyStatus } = useOrderStore()
+  const { buyStatus, resetBuyStatus } = useOrderStore()
 
   // Auto-close on sold out after 3 seconds
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function OrderStatusModal({ saleName, price, onClose, onProceedPa
           )}
 
           {/* Queued / Order confirmed */}
-          {buyStatus === 'queued' && unpaidOrderNo && (
+          {buyStatus === 'queued' && (
             <div className="text-center py-4">
               <div className="w-12 h-12 rounded-full bg-flash/20 flex items-center justify-center mx-auto mb-4">
                 <svg className="w-6 h-6 text-flash" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -63,15 +63,14 @@ export default function OrderStatusModal({ saleName, price, onClose, onProceedPa
                 </svg>
               </div>
               <p className="text-[13px] text-muted mb-1">購入リクエスト受付済</p>
-              <p className="font-mono text-[11px] text-muted mb-4">ORDER: {unpaidOrderNo}</p>
               <div className="bg-ink border border-white/[0.08] rounded-[4px] p-4 mb-5 text-left">
                 <div className="text-[13px] text-muted mb-1">{saleName}</div>
                 <div className="font-oswald text-[24px] font-semibold">¥{price.toLocaleString()}</div>
                 <div className="font-mono text-[10px] text-muted mt-1 tracking-[1px]">
-                  STATUS: UNPAID → お支払いをお待ちしています
+                  未払い → お支払いをお待ちしています
                 </div>
               </div>
-              <button className="btn-base bg-flash" onClick={() => onProceedPayment(unpaidOrderNo)}>
+              <button className="btn-base bg-flash" onClick={onProceedPayment}>
                 お支払いへ進む
               </button>
               <p className="font-mono text-[9.5px] text-muted mt-2 tracking-[0.5px]">

@@ -49,7 +49,6 @@ export interface LotteryItem {
 
 export interface FlashOrderItem {
   id: string
-  orderNo: string
   saleId: string
   saleName: string
   price: number

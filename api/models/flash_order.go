@@ -7,7 +7,6 @@ import (
 // FlashOrder はフラッシュセールの注文を表すモデルです（flash_ordersテーブル）
 type FlashOrder struct {
 	ID        string     `db:"id" json:"id"`
-	OrderNo   string     `db:"order_no" json:"orderNo"`
 	UserID    string     `db:"user_id" json:"userId"`
 	FlashID   string     `db:"flash_id" json:"flashId"`
 	Price     int        `db:"price" json:"price"`

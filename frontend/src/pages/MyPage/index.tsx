@@ -14,7 +14,7 @@ export default function MyPage() {
   const defaultTab = searchParams.get('tab') === 'lottery' ? 'lottery' : 'orders'
   const [tab, setTab] = useState<'orders' | 'lottery'>(defaultTab)
   const [orderStatusFilter, setOrderStatusFilter] = useState<FlashOrderStatus | 'ALL'>('ALL')
-  const [payingOrder, setPayingOrder] = useState<{ id: string; no: string; amount: number } | null>(null)
+  const [payingOrder, setPayingOrder] = useState<{ id: string; amount: number } | null>(null)
 
   const { user, isLoggedIn } = useAuthStore()
   const { orders, applications, fetchOrders, fetchApplications } = useOrderStore()
@@ -127,7 +127,6 @@ export default function MyPage() {
                   key={order.id}
                   className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-5 flex items-center justify-between gap-4 hover:border-white/20 transition-colors">
                   <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[10px] text-muted tracking-[1px] mb-1">{order.orderNo}</div>
                     <div className="font-semibold text-paper truncate text-[15px]">{order.saleName}</div>
                     <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
                       注文日時: {dayjs(order.createdAt).format('YYYY/MM/DD HH:mm')}
@@ -142,7 +141,7 @@ export default function MyPage() {
                       {order.status === 'UNPAID' && (
                         <button
                           className="mt-1 px-3 py-1 bg-flash text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                          onClick={() => setPayingOrder({ id: order.id, no: order.orderNo, amount: order.price })}>
+                          onClick={() => setPayingOrder({ id: order.id, amount: order.price })}>
                           支払う →
                         </button>
                       )}
@@ -186,13 +185,7 @@ export default function MyPage() {
                     {app.status === 'UNPAID' && (
                       <button
                         className="mt-1 px-3 py-1 bg-lottery text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                        onClick={() =>
-                          setPayingOrder({
-                            id: app.id,
-                            no: `LOT-${app.id.toUpperCase()}`,
-                            amount: app.price ?? 9800,
-                          })
-                        }>
+                        onClick={() => setPayingOrder({ id: app.id, amount: app.price ?? 9800 })}>
                         支払う →
                       </button>
                     )}
@@ -208,7 +201,6 @@ export default function MyPage() {
       {payingOrder && (
         <PaymentMockModal
           orderId={payingOrder.id}
-          orderNo={payingOrder.no}
           amount={payingOrder.amount}
           onClose={() => setPayingOrder(null)}
           onSuccess={() => {

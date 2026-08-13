@@ -20,7 +20,6 @@ export default function FlashDetail() {
 
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [payOrderNo, setPayOrderNo] = useState('')
 
   // IDでセール情報を取得する（同時に閲覧数が1増やされる）
   const { data: sale, isLoading } = useQuery({
@@ -41,8 +40,7 @@ export default function FlashDetail() {
     await flashBuy(id!)
   }
 
-  const handleProceedPayment = (orderNo: string) => {
-    setPayOrderNo(orderNo)
+  const handleProceedPayment = () => {
     setShowOrderModal(false)
     setShowPaymentModal(true)
   }
@@ -227,7 +225,6 @@ export default function FlashDetail() {
       {showPaymentModal && (
         <PaymentMockModal
           orderId={`ord-${Date.now()}`}
-          orderNo={payOrderNo}
           amount={sale.price}
           onClose={() => setShowPaymentModal(false)}
           onSuccess={handlePaySuccess}

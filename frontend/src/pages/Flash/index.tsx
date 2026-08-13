@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import Countdown from '../../components/Countdown'
 import StockDots from '../../components/StockDots'
@@ -15,6 +15,7 @@ export default function FlashDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
   const { flashBuy, buyStatus, resetBuyStatus } = useOrderStore()
 
@@ -38,6 +39,9 @@ export default function FlashDetail() {
     }
     setShowOrderModal(true)
     await flashBuy(id!)
+    // 在庫はサーバー側で減っているため、詳細データを再取得して表示を更新する
+    // （成功・売切・失敗のいずれの場合も最新の在庫を反映する）
+    queryClient.invalidateQueries({ queryKey: ['flash', id] })
   }
 
   const handleProceedPayment = () => {

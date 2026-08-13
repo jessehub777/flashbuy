@@ -69,6 +69,7 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 		{
 			authGroup.POST("/register", authController.Register)
 			authGroup.POST("/login", authController.Login)
+			authGroup.POST("/refresh", authController.Refresh)
 			authGroup.POST("/logout", authController.Logout)
 		}
 

@@ -86,8 +86,8 @@ func (h *AuthController) Login(c *gin.Context) {
 		return
 	}
 
-	// Cognitoで認証してIDトークンを取得
-	idToken, err := h.cognito.Login(c.Request.Context(), req.Email, req.Password)
+	// Cognitoで認証してIDトークンとリフレッシュトークンを取得
+	idToken, refreshToken, err := h.cognito.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		logger.Error("ログインに失敗しました", zap.Error(err), zap.String("email", req.Email))
 		response.Error(c, response.CodeUnauthorized)
@@ -128,8 +128,38 @@ func (h *AuthController) Login(c *gin.Context) {
 
 	logger.Info("ログイン成功", zap.String("email", req.Email))
 	response.Success(c, gin.H{
-		"user":  user,
-		"token": idToken,
+		"user":         user,
+		"token":        idToken,
+		"refreshToken": refreshToken,
+	})
+}
+
+// refreshRequest はトークン更新リクエストのボディ構造体です
+type refreshRequest struct {
+	RefreshToken string `json:"refreshToken" binding:"required"`
+}
+
+// Refresh はリフレッシュトークンから新しいIDトークンを発行します
+// POST /api/v1/auth/refresh
+func (h *AuthController) Refresh(c *gin.Context) {
+	var req refreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error("リクエストパラメータが不正です", zap.Error(err))
+		response.Error(c, response.CodeInvalidParam)
+		return
+	}
+
+	// リフレッシュトークンで新しいIDトークンを取得
+	newIDToken, err := h.cognito.RefreshToken(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		logger.Error("トークンの更新に失敗しました", zap.Error(err))
+		response.Error(c, response.CodeUnauthorized)
+		return
+	}
+
+	logger.Info("トークンを更新しました")
+	response.Success(c, gin.H{
+		"token": newIDToken,
 	})
 }
 

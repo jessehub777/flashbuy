@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { setupAuth } from './services/request'
+import { setupAuth, isTokenExpired } from './services/request'
 import { useAuthStore } from './stores/authStore'
 import Header from './components/layout/Header'
 import Footer from './components/layout/Footer'
@@ -32,10 +32,21 @@ function App() {
     setupAuth(
       () => useAuthStore.getState().token,
       () => {
-        useAuthStore.getState().logout()
+        void useAuthStore.getState().logout()
         window.location.href = '/login'
-      }
+      },
+      () => useAuthStore.getState().refreshToken,
+      (token) => useAuthStore.getState().setToken(token)
     )
+
+    // 起動時にトークンの期限切れを検知したら即ログアウト
+    // （有効期限切れのトークンで「ログイン済み」のまま表示されるのを防ぐ）
+    const token = useAuthStore.getState().token
+    void token
+    if (token && isTokenExpired(token)) {
+      void useAuthStore.getState().logout()
+      window.location.href = '/login'
+    }
   }, [])
 
   return (

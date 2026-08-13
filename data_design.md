@@ -67,7 +67,6 @@ export type FlashOrderStatus = 'UNPAID' | 'PAID' | 'CANCELLED'
 
 export interface FlashOrderItem {
   id: string
-  orderNo: string // "FB-20260730-0042"
   saleId: string // FK → FlashItem.id
   saleName: string // 非正規化（表示用）
   price: number
@@ -203,7 +202,6 @@ CREATE INDEX idx_lottery_items_category     ON lottery_items(category);
 ```sql
 CREATE TABLE flash_orders (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_no     VARCHAR(30) UNIQUE NOT NULL,
   user_id      UUID NOT NULL REFERENCES users(id),
   flash_id      UUID NOT NULL REFERENCES flash_items(id),
   price        INTEGER NOT NULL,

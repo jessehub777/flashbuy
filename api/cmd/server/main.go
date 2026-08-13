@@ -13,6 +13,7 @@ import (
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
+	"flashbuy/api/pkg/task"
 	"flashbuy/api/router"
 
 	"go.uber.org/zap"
@@ -59,7 +60,10 @@ func main() {
 	}
 	defer auth.CloseJWKS()
 
-	// 7. Gin HTTPサーバーの設定とルーティング
+	// 7. 注文の期限切れ監視タスクを起動（30秒間隔で未払い・期限切れ注文をキャンセル）
+	go task.StartOrderExpirer(30 * time.Second)
+
+	// 8. Gin HTTPサーバーの設定とルーティング
 	r := router.SetupRouter(cfg.App.Env, cognitoClient)
 
 	// サーバーインスタンスの作成

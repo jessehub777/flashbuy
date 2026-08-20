@@ -55,6 +55,7 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 		{
 			lotteryGroup.GET("/list", lotteryController.GetLotteryList)
 			lotteryGroup.GET("/getLotteryById/:id", lotteryController.GetLotteryById)
+			lotteryGroup.POST("/apply", middleware.AuthRequired(), lotteryController.ApplyLottery)
 		}
 
 		// 検索関連ルート

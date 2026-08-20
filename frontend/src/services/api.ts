@@ -94,7 +94,7 @@ export const api = {
   },
 
   // 抽選応募
-  async applyLottery(lotteryId: string): Promise<{ applicationId: string }> {
+  async applyLottery(lotteryId: string): Promise<{ applyId: string }> {
     return requestPost('/api/v1/lottery/apply', { lotteryId })
   },
 

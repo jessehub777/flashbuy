@@ -1,7 +1,7 @@
 // 抽選詳細ページ — 応募情報・倍率計算・閲覧数・応募確認
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Countdown from '../../components/Countdown'
 import { api } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
@@ -12,6 +12,7 @@ export default function LotteryDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
   const { applyLottery, applyStatus, isApplied, resetApplyStatus } = useOrderStore()
   const [applied, setApplied] = useState(false)
@@ -37,6 +38,8 @@ export default function LotteryDetail() {
     await applyLottery(id!)
     setApplied(true)
     resetApplyStatus()
+    // 応募者数（applyCount）はサーバー側で増えているため、詳細データを再取得して表示を更新する
+    queryClient.invalidateQueries({ queryKey: ['lottery', id] })
   }
 
   if (isLoading) return <LoadingSkeleton />

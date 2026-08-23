@@ -7,6 +7,7 @@ import type { PaymentMethod } from '../types'
 
 interface PaymentMockModalProps {
   orderId: string
+  orderType: 'flash' | 'lottery'
   amount: number
   onClose: () => void
   onSuccess: () => void
@@ -18,12 +19,12 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
   { id: 'bank_transfer', label: '銀行振込', icon: '🏦' },
 ]
 
-export default function PaymentMockModal({ orderId, amount, onClose, onSuccess }: PaymentMockModalProps) {
+export default function PaymentMockModal({ orderId, orderType, amount, onClose, onSuccess }: PaymentMockModalProps) {
   const { payOrder, payStatus, resetPayStatus } = useOrderStore()
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('credit_card')
 
   const handlePay = async () => {
-    const ok = await payOrder(orderId, amount, selectedMethod)
+    const ok = await payOrder(orderId, orderType, amount, selectedMethod)
     if (ok) {
       setTimeout(() => {
         resetPayStatus()

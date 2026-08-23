@@ -7,6 +7,8 @@ interface OrderState {
   // Flash orders
   orders: FlashOrderItem[]
   buyStatus: 'idle' | 'queuing' | 'queued' | 'sold_out' | 'error'
+  // 購入直後の支払いに使う注文ID（購入成功時にセットされる）
+  currentOrderId: string | null
 
   // Lottery applications
   applications: LotteryOrderItem[]
@@ -19,7 +21,7 @@ interface OrderState {
   // Actions
   flashBuy: (saleId: string) => Promise<void>
   applyLottery: (lotteryId: string) => Promise<void>
-  payOrder: (orderId: string, amount: number, method: string) => Promise<boolean>
+  payOrder: (orderId: string, orderType: 'flash' | 'lottery', amount: number, method: string) => Promise<boolean>
   fetchOrders: () => Promise<void>
   fetchApplications: () => Promise<void>
   resetBuyStatus: () => void
@@ -31,17 +33,19 @@ interface OrderState {
 export const useOrderStore = create<OrderState>((set, get) => ({
   orders: [],
   buyStatus: 'idle',
+  currentOrderId: null,
   applications: [],
   applyStatus: 'idle',
   appliedIds: new Set<string>(),
   payStatus: 'idle',
 
   flashBuy: async (saleId) => {
-    set({ buyStatus: 'queuing' })
+    set({ buyStatus: 'queuing', currentOrderId: null })
     try {
       const result = await api.flashBuy(saleId)
       if (result.status === 'QUEUED') {
-        set({ buyStatus: 'queued' })
+        // 支払い画面で使う注文IDを保存する
+        set({ buyStatus: 'queued', currentOrderId: result.orderId })
       } else {
         set({ buyStatus: 'sold_out' })
       }
@@ -63,11 +67,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     }
   },
 
-  payOrder: async (orderId, amount, method) => {
+  payOrder: async (orderId, orderType, amount, method) => {
     set({ payStatus: 'processing' })
     try {
       const result = await api.processMockPayment({
         orderId,
+        orderType,
         amount,
         method: method as 'credit_card',
       })
@@ -100,7 +105,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ applications })
   },
 
-  resetBuyStatus: () => set({ buyStatus: 'idle' }),
+  resetBuyStatus: () => set({ buyStatus: 'idle', currentOrderId: null }),
   resetApplyStatus: () => set({ applyStatus: 'idle' }),
   resetPayStatus: () => set({ payStatus: 'idle' }),
   isApplied: (lotteryId) => get().appliedIds.has(lotteryId),

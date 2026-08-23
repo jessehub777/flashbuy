@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { LotteryTicket } from '../../components/TicketCard'
 import { api } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
+import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
 type SortOption = 'popular' | 'deadline' | 'winners'
@@ -21,6 +22,15 @@ export default function LotteryList() {
   })
 
   const { appliedIds } = useOrderStore()
+  const { isLoggedIn } = useAuthStore()
+
+  // ログイン中のみ「自分の応募一覧」をサーバーから取得する
+  // （appliedIdsはメモリ上だけなので、ページリロード後も応募済みを正しく表示するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
 
   // カテゴリ一覧を抽出する
   const categories = useMemo(() => {
@@ -158,7 +168,11 @@ export default function LotteryList() {
           <EmptyState query={searchQuery} />
         : <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {filtered.map((item) => (
-              <LotteryTicket key={item.id} item={item} applied={appliedIds.has(item.id)} />
+              <LotteryTicket
+                key={item.id}
+                item={item}
+                applied={appliedIds.has(item.id) || myApplications.some((a) => a.lotteryId === item.id)}
+              />
             ))}
           </div>
         }

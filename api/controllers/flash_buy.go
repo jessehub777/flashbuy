@@ -75,11 +75,14 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 	}
 
 	// 注文を作成（支払い期限 = 15分後）
-	_, err = tx.Exec(
+	// 支払い画面で使うため、作成した注文のIDを返す
+	var orderID string
+	err = tx.QueryRow(
 		`INSERT INTO flash_orders (user_id, flash_id, price, status, expires_at)
-		 VALUES ($1, $2, $3, 'UNPAID', $4)`,
+		 VALUES ($1, $2, $3, 'UNPAID', $4)
+		 RETURNING id`,
 		userID, req.SaleID, price, time.Now().Add(paymentExpiry),
-	)
+	).Scan(&orderID)
 	if err != nil {
 		tx.Rollback()
 		logger.Error("注文の作成に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
@@ -108,10 +111,11 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 	}
 
 	logger.Info("フラッシュ購入が完了しました",
-		zap.String("userId", userID), zap.String("saleId", req.SaleID))
+		zap.String("orderId", orderID), zap.String("userId", userID), zap.String("saleId", req.SaleID))
 
 	response.Success(c, gin.H{
-		"status": "QUEUED",
+		"orderId": orderID,
+		"status":  "QUEUED",
 	})
 }
 

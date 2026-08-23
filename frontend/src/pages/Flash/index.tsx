@@ -17,7 +17,7 @@ export default function FlashDetail() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
-  const { flashBuy, buyStatus, resetBuyStatus } = useOrderStore()
+  const { flashBuy, buyStatus, resetBuyStatus, currentOrderId } = useOrderStore()
 
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -228,7 +228,8 @@ export default function FlashDetail() {
 
       {showPaymentModal && (
         <PaymentMockModal
-          orderId={`ord-${Date.now()}`}
+          orderId={currentOrderId ?? ''}
+          orderType="flash"
           amount={sale.price}
           onClose={() => setShowPaymentModal(false)}
           onSuccess={handlePaySuccess}

@@ -14,7 +14,11 @@ export default function MyPage() {
   const defaultTab = searchParams.get('tab') === 'lottery' ? 'lottery' : 'orders'
   const [tab, setTab] = useState<'orders' | 'lottery'>(defaultTab)
   const [orderStatusFilter, setOrderStatusFilter] = useState<FlashOrderStatus | 'ALL'>('ALL')
-  const [payingOrder, setPayingOrder] = useState<{ id: string; amount: number } | null>(null)
+  const [payingOrder, setPayingOrder] = useState<{
+    id: string
+    orderType: 'flash' | 'lottery'
+    amount: number
+  } | null>(null)
 
   const { user, isLoggedIn } = useAuthStore()
   const { orders, applications, fetchOrders, fetchApplications } = useOrderStore()
@@ -141,7 +145,7 @@ export default function MyPage() {
                       {order.status === 'UNPAID' && (
                         <button
                           className="mt-1 px-3 py-1 bg-flash text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                          onClick={() => setPayingOrder({ id: order.id, amount: order.price })}>
+                          onClick={() => setPayingOrder({ id: order.id, orderType: 'flash', amount: order.price })}>
                           支払う →
                         </button>
                       )}
@@ -177,7 +181,10 @@ export default function MyPage() {
                 <div className="text-right flex-none">
                   {(app.status === 'UNPAID' || app.status === 'PAID') && (
                     <div className="font-oswald font-bold text-[18px] text-paper mb-1">
-                      ¥{(app.price ?? 9800).toLocaleString()}
+                      ¥{(app.chosenPrice ?? 0).toLocaleString()}
+                      {app.price === 0 && (
+                        <span className="text-[10px] font-normal text-muted ml-1">応募無料</span>
+                      )}
                     </div>
                   )}
                   <div className="flex flex-col items-end gap-1">
@@ -185,7 +192,7 @@ export default function MyPage() {
                     {app.status === 'UNPAID' && (
                       <button
                         className="mt-1 px-3 py-1 bg-lottery text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                        onClick={() => setPayingOrder({ id: app.id, amount: app.price ?? 9800 })}>
+                        onClick={() => setPayingOrder({ id: app.id, orderType: 'lottery', amount: app.chosenPrice ?? 0 })}>
                         支払う →
                       </button>
                     )}
@@ -201,6 +208,7 @@ export default function MyPage() {
       {payingOrder && (
         <PaymentMockModal
           orderId={payingOrder.id}
+          orderType={payingOrder.orderType}
           amount={payingOrder.amount}
           onClose={() => setPayingOrder(null)}
           onSuccess={() => {

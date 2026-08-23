@@ -38,7 +38,8 @@ type LotteryOrderDTO struct {
 	AppliedAt   time.Time  `db:"applied_at" json:"appliedAt"`
 	Status      string     `db:"status" json:"status"` // 'WAITING','UNPAID','LOST','PAID','CANCELLED'
 	PayDeadline *time.Time `db:"pay_deadline" json:"payDeadline,omitempty"`
-	Price       int        `db:"price" json:"price"`
+	Price       int        `db:"price" json:"price"`              // 応募費（0 = 応募無料）
+	ChosenPrice int        `db:"chosen_price" json:"chosenPrice"` // 当選時に実際に支払う金額
 }
 
 // GetMyFlashOrderList はログイン中のユーザーのフラッシュ注文一覧を返します
@@ -85,7 +86,7 @@ func (h *MyController) GetMyLotteryOrderList(c *gin.Context) {
 	var lotteryOrderList []LotteryOrderDTO
 	err := database.DB.Select(&lotteryOrderList, `
 		SELECT lo.id, lo.lottery_id, li.name AS lottery_name,
-		       lo.applied_at, lo.status, lo.pay_deadline, lo.price
+		       lo.applied_at, lo.status, lo.pay_deadline, lo.price, lo.chosen_price
 		FROM lottery_orders lo
 		JOIN lottery_items li ON li.id = lo.lottery_id
 		WHERE lo.user_id = $1

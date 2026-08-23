@@ -25,7 +25,16 @@ export default function LotteryDetail() {
     enabled: !!id,
   })
 
-  const alreadyApplied = applied || (id ? isApplied(id) : false)
+  // ログイン中のみ「自分の応募一覧」をサーバーから取得する
+  // （appliedIdsはメモリ上だけなので、ページリロード後も応募済みを正しく表示するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
+
+  const alreadyApplied =
+    applied || (id ? isApplied(id) : false) || myApplications.some((a) => a.lotteryId === id)
   const winRate = item ? ((item.winnerCount / Math.max(item.applyCount + 1, 1)) * 100).toFixed(1) : '0'
 
   const handleApply = async () => {
@@ -40,6 +49,8 @@ export default function LotteryDetail() {
     resetApplyStatus()
     // 応募者数（applyCount）はサーバー側で増えているため、詳細データを再取得して表示を更新する
     queryClient.invalidateQueries({ queryKey: ['lottery', id] })
+    // 自分の応募一覧も再取得して、応募済み状態をサーバーと同期する
+    queryClient.invalidateQueries({ queryKey: ['myLotteryApplications'] })
   }
 
   if (isLoading) return <LoadingSkeleton />
@@ -124,15 +135,9 @@ export default function LotteryDetail() {
           <div className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase mb-2">{item.category}</div>
           <h1 className="font-oswald font-semibold text-[32px] leading-[1.1] mb-3 text-paper">{item.name}</h1>
           <div className="font-oswald font-bold text-[36px] text-paper mb-1">
-            {item.price === 0 ?
-              <span>
-                ¥0 <span className="text-[16px] font-normal text-muted">応募無料</span>
-              </span>
-            : <>
-                <span className="text-[18px] font-normal text-muted mr-1">¥</span>
-                {item.price.toLocaleString()}
-              </>
-            }
+            <span className="text-[18px] font-normal text-muted mr-1">¥</span>
+            {item.chosenPrice.toLocaleString()}
+            {item.price === 0 && <span className="text-[16px] font-normal text-muted ml-2">応募無料</span>}
           </div>
 
           <p className="text-[14px] text-muted leading-[1.8] mt-4 mb-8">{item.description}</p>

@@ -75,6 +75,13 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 			authGroup.POST("/logout", authController.Logout)
 		}
 
+		// 決済ルート（認証必須）
+		paymentController := controllers.NewPaymentController()
+		paymentGroup := v1.Group("/payment", middleware.AuthRequired())
+		{
+			paymentGroup.POST("/mock", paymentController.MockPay)
+		}
+
 		// マイページルート（認証必須）
 		myController := controllers.NewMyController()
 		myGroup := v1.Group("/my", middleware.AuthRequired())

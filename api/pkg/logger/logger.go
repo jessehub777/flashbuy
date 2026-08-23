@@ -62,6 +62,16 @@ func Info(msg string, fields ...zap.Field) {
 	}
 }
 
+// Warn は警告レベルのログを出力します。
+func Warn(msg string, fields ...zap.Field) {
+	if Log != nil {
+		Log.Warn(msg, fields...)
+	} else {
+		// ロガーが初期化されていない場合のフォールバック
+		zap.L().Warn(msg, fields...)
+	}
+}
+
 // Error はエラーレベルのログを出力します。
 func Error(msg string, fields ...zap.Field) {
 	if Log != nil {

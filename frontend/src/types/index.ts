@@ -31,7 +31,8 @@ export interface LotteryItem {
   name: string
   description: string
   imageUrl: string
-  price: number // in JPY, 0 = 応募無料
+  price: number // 応募費（JPY、0 = 応募無料）
+  chosenPrice: number // 当選時に実際に支払う金額（JPY）
   winnerCount: number
   applyCount: number
   status: LotteryStatus
@@ -64,7 +65,8 @@ export interface LotteryOrderItem {
   appliedAt: string
   status: LotteryOrderStatus
   payDeadline?: string
-  price?: number
+  price?: number // 応募費（0 = 応募無料）
+  chosenPrice?: number // 当選時に実際に支払う金額
 }
 
 // ===== Auth =====
@@ -97,6 +99,7 @@ export type PaymentMethod = 'credit_card' | 'convenience' | 'bank_transfer'
 
 export interface MockPaymentPayload {
   orderId: string
+  orderType: 'flash' | 'lottery'
   amount: number
   method: PaymentMethod
 }

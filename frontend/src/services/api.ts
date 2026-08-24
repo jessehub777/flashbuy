@@ -129,13 +129,13 @@ export const api = {
 
   // 管理画面用 — 新規フラッシュセール作成 API
   async createFlash(sale: AdminFlashPayload): Promise<FlashItem> {
-    const res = await requestPost<{ flashItem: FlashItem }>('/api/v1/admin/flash', sale)
+    const res = await requestPost<{ flashItem: any }>('/api/v1/admin/flash', sale)
     return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
   // 管理画面用 — 新規抽選作成 API
   async createLottery(lottery: AdminLotteryPayload): Promise<LotteryItem> {
-    const res = await requestPost<{ lotteryItem: LotteryItem }>('/api/v1/admin/lottery', lottery)
+    const res = await requestPost<{ lotteryItem: any }>('/api/v1/admin/lottery', lottery)
     return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 

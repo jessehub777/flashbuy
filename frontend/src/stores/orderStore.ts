@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import type { FlashOrderItem, LotteryOrderItem, FlashOrderStatus } from '../types'
 import { api } from '../services/api'
+import { ApiError } from '../services/request'
 
 interface OrderState {
   // Flash orders
@@ -16,7 +17,7 @@ interface OrderState {
   appliedIds: Set<string>
 
   // Payment
-  payStatus: 'idle' | 'processing' | 'success' | 'failed'
+  payStatus: 'idle' | 'processing' | 'success' | 'failed' | 'expired'
 
   // Actions
   flashBuy: (saleId: string) => Promise<void>
@@ -89,8 +90,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         set({ payStatus: 'failed' })
         return false
       }
-    } catch {
-      set({ payStatus: 'failed' })
+    } catch (e) {
+      // パラメータエラー（400）は注文が期限切れ・キャンセル済みの可能性が高い。
+      // ランダムな決済失敗とは区別して表示する
+      if (e instanceof ApiError && e.code === 400) {
+        set({ payStatus: 'expired' })
+      } else {
+        set({ payStatus: 'failed' })
+      }
       return false
     }
   },

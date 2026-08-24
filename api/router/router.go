@@ -82,6 +82,16 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 			paymentGroup.POST("/mock", paymentController.MockPay)
 		}
 
+		// 管理者ルート（認証 + 管理者ロール必須）
+		adminController := controllers.NewAdminController()
+		adminGroup := v1.Group("/admin", middleware.AuthRequired(), middleware.RequireRole("admin"))
+		{
+			adminGroup.GET("/flash/list", adminController.ListFlash)
+			adminGroup.POST("/flash", adminController.CreateFlash)
+			adminGroup.GET("/lottery/list", adminController.ListLottery)
+			adminGroup.POST("/lottery", adminController.CreateLottery)
+		}
+
 		// マイページルート（認証必須）
 		myController := controllers.NewMyController()
 		myGroup := v1.Group("/my", middleware.AuthRequired())

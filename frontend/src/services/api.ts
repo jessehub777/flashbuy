@@ -12,6 +12,7 @@ import type {
   HomeTop10,
   User,
 } from '../types'
+import type { AdminFlashPayload, AdminLotteryPayload } from '../types'
 import { request, requestPost, toImageUrl } from './request'
 
 // ===== 動的ステータス計算 =====
@@ -94,7 +95,7 @@ export const api = {
   },
 
   // 抽選応募
-  async applyLottery(lotteryId: string): Promise<{ applyId: string }> {
+  async applyLottery(lotteryId: string): Promise<{ applicationId: string }> {
     return requestPost('/api/v1/lottery/apply', { lotteryId })
   },
 
@@ -114,16 +115,28 @@ export const api = {
     return requestPost('/api/v1/payment/mock', payload)
   },
 
+  // 管理画面用 — 全フラッシュセール取得（終了済みも含む）
+  async adminGetFlashList(): Promise<FlashItem[]> {
+    const res = await request<{ flashList: any[] }>('/api/v1/admin/flash/list')
+    return res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) }))
+  },
+
+  // 管理画面用 — 全抽選取得（終了済みも含む）
+  async adminGetLotteryList(): Promise<LotteryItem[]> {
+    const res = await request<{ lotteryList: any[] }>('/api/v1/admin/lottery/list')
+    return res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) }))
+  },
+
   // 管理画面用 — 新規フラッシュセール作成 API
-  async createFlash(sale: Partial<FlashItem>): Promise<FlashItem> {
+  async createFlash(sale: AdminFlashPayload): Promise<FlashItem> {
     const res = await requestPost<{ flashItem: FlashItem }>('/api/v1/admin/flash', sale)
-    return res.flashItem
+    return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
   // 管理画面用 — 新規抽選作成 API
-  async createLottery(lottery: Partial<LotteryItem>): Promise<LotteryItem> {
+  async createLottery(lottery: AdminLotteryPayload): Promise<LotteryItem> {
     const res = await requestPost<{ lotteryItem: LotteryItem }>('/api/v1/admin/lottery', lottery)
-    return res.lotteryItem
+    return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 
   // ログイン（IDトークン + リフレッシュトークン）

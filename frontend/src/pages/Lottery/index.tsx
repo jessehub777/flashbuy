@@ -35,7 +35,17 @@ export default function LotteryDetail() {
 
   const alreadyApplied =
     applied || (id ? isApplied(id) : false) || myApplications.some((a) => a.lotteryId === id)
-  const winRate = item ? ((item.winnerCount / Math.max(item.applyCount + 1, 1)) * 100).toFixed(1) : '0'
+  // 推定当選率:
+  //   - 応募者数が0 → 「—」（未定）
+  //   - 応募者数 <= 当選枠 → 100%（応募すれば必ず当選）
+  //   - 応募者数 > 当選枠 → 当選枠 / 応募者数
+  const winRate = item
+    ? item.applyCount === 0
+      ? '—'
+      : item.applyCount <= item.winnerCount
+        ? '100'
+        : ((item.winnerCount / item.applyCount) * 100).toFixed(1)
+    : '0'
 
   const handleApply = async () => {
     if (!isLoggedIn()) {
@@ -272,7 +282,9 @@ export default function LotteryDetail() {
             <h3 className="font-oswald font-semibold text-[18px] mb-2">応募を確認</h3>
             <p className="text-[14px] text-muted mb-1">{item.name}</p>
             <p className="font-mono text-[11px] text-muted mb-5 tracking-[0.5px]">
-              現在の当選確率: 約 {winRate}%（{item.applyCount.toLocaleString()}人中{item.winnerCount}名当選）
+              {item.applyCount > 0 ?
+                `現在の当選確率: 約 ${winRate}%（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
+              : `当選枠 ${item.winnerCount}名（応募者募集中）`}
             </p>
             <div className="flex gap-3">
               <button

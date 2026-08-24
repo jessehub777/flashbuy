@@ -45,17 +45,19 @@ func (h *FlashController) GetFlashList(c *gin.Context) {
 // FlashItemCache はフラッシュ詳細のキャッシュ用DTOです。
 // viewCountとstockはリアルタイムに変わるためキャッシュせず、レスポンス時にDBから取得して合成します
 type FlashItemCache struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	ImageS3Key  *string   `json:"imageS3Key,omitempty"`
-	DetailS3Key *string   `json:"detailS3Key,omitempty"`
-	Price       int       `json:"price"`
-	TotalStock  int       `json:"totalStock"`
-	StartsAt    time.Time `json:"startsAt"`
-	EndsAt      time.Time `json:"endsAt"`
-	Category    string    `json:"category"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	ImageS3Key     *string                `json:"imageS3Key,omitempty"`
+	DetailS3Key    *string                `json:"detailS3Key,omitempty"`
+	Price          int                    `json:"price"`
+	TotalStock     int                    `json:"totalStock"`
+	StartsAt       time.Time              `json:"startsAt"`
+	EndsAt         time.Time              `json:"endsAt"`
+	Category       string                 `json:"category"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	Specifications []models.Specification `json:"specifications,omitempty"`
+	Rules          []string               `json:"rules,omitempty"`
 }
 
 // FlashDetailResponse はフラッシュ詳細のレスポンスDTOです。
@@ -81,18 +83,26 @@ func (h *FlashController) GetFlashById(c *gin.Context) {
 		if err != nil {
 			return FlashItemCache{}, err
 		}
+		// 商品仕様・注意事項（detail_json）をパースする
+		detail, err := models.ParseItemDetail(item.DetailJSON)
+		if err != nil {
+			logger.Warn("商品詳細のパースに失敗しました", zap.String("flashId", id), zap.Error(err))
+			detail = &models.ItemDetail{}
+		}
 		return FlashItemCache{
-			ID:          item.ID,
-			Name:        item.Name,
-			Description: item.Description,
-			ImageS3Key:  item.ImageS3Key,
-			DetailS3Key: item.DetailS3Key,
-			Price:       item.Price,
-			TotalStock:  item.TotalStock,
-			StartsAt:    item.StartsAt,
-			EndsAt:      item.EndsAt,
-			Category:    item.Category,
-			CreatedAt:   item.CreatedAt,
+			ID:             item.ID,
+			Name:           item.Name,
+			Description:    item.Description,
+			ImageS3Key:     item.ImageS3Key,
+			DetailS3Key:    item.DetailS3Key,
+			Price:          item.Price,
+			TotalStock:     item.TotalStock,
+			StartsAt:       item.StartsAt,
+			EndsAt:         item.EndsAt,
+			Category:       item.Category,
+			CreatedAt:      item.CreatedAt,
+			Specifications: detail.Specifications,
+			Rules:          detail.Rules,
 		}, nil
 	}, func(item FlashItemCache) time.Duration {
 		// 販売終了時刻までをTTLにする（終了済みならキャッシュしない）

@@ -56,6 +56,7 @@ export interface FlashOrderItem {
   status: FlashOrderStatus
   createdAt: string
   paidAt?: string
+  expiresAt?: string // 支払期限（UNPAIDのみ）
 }
 
 export interface LotteryOrderItem {
@@ -91,6 +92,40 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   pageSize: number
+}
+
+// ===== Admin 商品作成 =====
+
+export interface AdminFlashPayload {
+  name: string
+  category: string
+  price: number
+  stock: number
+  description?: string
+  startsAt?: string
+  endsAt?: string
+  imageS3Key?: string // 画像のS3キー（presign API導入時に使用予定）
+  detailS3Key?: string // 詳細JSONのS3キー（presign API導入時に使用予定）
+  // 商品仕様・注意事項（将来S3に保存予定）
+  specifications?: { label: string; value: string }[]
+  rules?: string[]
+}
+
+export interface AdminLotteryPayload {
+  name: string
+  category: string
+  price: number // 応募費
+  chosenPrice: number // 当選時の支払額
+  winnerCount: number // 当選枠数
+  description?: string
+  startsAt?: string
+  applyDeadline?: string
+  drawAt?: string
+  imageS3Key?: string // 画像のS3キー（presign API導入時に使用予定）
+  detailS3Key?: string // 詳細JSONのS3キー（presign API導入時に使用予定）
+  // 商品仕様・注意事項（将来S3に保存予定）
+  specifications?: { label: string; value: string }[]
+  rules?: string[]
 }
 
 // ===== Mock payment =====

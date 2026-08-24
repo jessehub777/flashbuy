@@ -26,7 +26,7 @@ type applyLotteryRequest struct {
 //  2. 応募を作成（WAITING）と apply_count+1 を同一トランザクションで行う
 //  3. 重複応募は UNIQUE(user_id, lottery_id) 制約で弾く（CodeRepeatApply）
 //
-// 返却: {applyId: 応募ID}
+// 返却: {applicationId: 応募ID}
 func (h *LotteryController) ApplyLottery(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == "" {
@@ -118,6 +118,6 @@ func (h *LotteryController) ApplyLottery(c *gin.Context) {
 		zap.String("userId", userID), zap.String("lotteryId", req.LotteryID))
 
 	response.Success(c, gin.H{
-		"applyId": applyId,
+		"applicationId": applyId,
 	})
 }

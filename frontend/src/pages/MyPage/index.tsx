@@ -1,9 +1,10 @@
 // マイページ — ユーザープロフィール・注文履歴・抽選応募履歴・モック決済管理
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useOrderStore } from '../../stores/orderStore'
 import { useAuthStore } from '../../stores/authStore'
 import PaymentMockModal from '../../components/PaymentMockModal'
+import { useCountdown } from '../../hooks/useCountdown'
 import dayjs from 'dayjs'
 import type { FlashOrderStatus, LotteryOrderStatus } from '../../types'
 
@@ -135,6 +136,9 @@ export default function MyPage() {
                     <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
                       注文日時: {dayjs(order.createdAt).format('YYYY/MM/DD HH:mm')}
                     </div>
+                    {order.status === 'UNPAID' && order.expiresAt && (
+                      <PaymentDeadline deadline={order.expiresAt} onExpired={fetchOrders} />
+                    )}
                   </div>
                   <div className="text-right flex-none">
                     <div className="font-oswald font-bold text-[20px] text-paper mb-1">
@@ -173,9 +177,7 @@ export default function MyPage() {
                     応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
                   </div>
                   {app.status === 'UNPAID' && app.payDeadline && (
-                    <div className="font-mono text-[11px] text-flash mt-1 tracking-[0.5px] font-semibold">
-                      支払期限: {dayjs(app.payDeadline).format('MM/DD HH:mm')} まで
-                    </div>
+                    <PaymentDeadline deadline={app.payDeadline} onExpired={fetchApplications} />
                   )}
                 </div>
                 <div className="text-right flex-none">
@@ -252,4 +254,53 @@ function LotteryResultBadge({ status }: { status: LotteryOrderStatus }) {
 
 function EmptyState({ message }: { message: string }) {
   return <div className="py-16 text-center font-mono text-[13px] text-muted tracking-[0.5px]">{message}</div>
+}
+
+// 支払期限までの残り時間を表示する（期限を過ぎたら自動キャンセルの警告を出す）
+// 期限切れになったら onExpired を呼び、親で注文一覧を再取得させる。
+// サーバーの期限切れ処理（order_expirer、30秒間隔）が走るまでの間は
+// 5秒ごとに再取得を続ける。親側で注文が CANCELLED / PAID に変わると
+// このコンポーネント自体がアンマウントされるため、自動で停止する
+function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?: () => void }) {
+  const { days, hours, minutes, seconds, isExpired } = useCountdown(deadline)
+  const expiredNotified = useRef(false)
+
+  // 期限切れになったら（初回表示時点で既に切れている場合も含め）即座に通知する
+  useEffect(() => {
+    if (isExpired && !expiredNotified.current) {
+      expiredNotified.current = true
+      onExpired?.()
+    }
+  }, [isExpired, onExpired])
+
+  // 期限切れ後もサーバーのキャンセル反映まで5秒ごとに再取得を試みる
+  useEffect(() => {
+    if (!isExpired) return
+    const timer = setInterval(() => onExpired?.(), 5000)
+    return () => clearInterval(timer)
+  }, [isExpired, onExpired])
+
+  // 残り時間が少なくなったら赤く点滅させて注意を促す（5分未満）
+  const urgent = !isExpired && Number(hours) === 0 && Number(minutes) < 5
+
+  if (isExpired) {
+    return (
+      <div className="font-mono text-[11px] text-flash mt-1 tracking-[0.5px] font-semibold animate-pulse">
+        ⚠ 支払期限切れ — 注文は自動キャンセルされます
+      </div>
+    )
+  }
+
+  const numDays = Number(days)
+  const timeText =
+    numDays > 0 ? `${numDays}日 ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`
+
+  return (
+    <div
+      className={`font-mono text-[11px] mt-1 tracking-[0.5px] font-semibold ${
+        urgent ? 'text-flash animate-pulse' : 'text-warning'
+      }`}>
+      支払期限まで {timeText}
+    </div>
+  )
 }

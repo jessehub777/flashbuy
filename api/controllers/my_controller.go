@@ -28,6 +28,8 @@ type FlashOrderDTO struct {
 	Status    string     `db:"status" json:"status"` // 'UNPAID','PAID','CANCELLED'
 	CreatedAt time.Time  `db:"created_at" json:"createdAt"`
 	PaidAt    *time.Time `db:"paid_at" json:"paidAt,omitempty"`
+	// 支払期限（UNPAIDのみ設定。期限を過ぎると自動キャンセルされる）
+	ExpiresAt *time.Time `db:"expires_at" json:"expiresAt,omitempty"`
 }
 
 // LotteryOrderDTO はマイページ用の抽選応募レスポンスです（商品名をJOINで取得）
@@ -54,7 +56,7 @@ func (h *MyController) GetMyFlashOrderList(c *gin.Context) {
 	var flashOrderList []FlashOrderDTO
 	err := database.DB.Select(&flashOrderList, `
 		SELECT fo.id, fo.flash_id AS sale_id, fi.name AS sale_name,
-		       fo.price, fo.status, fo.created_at, fo.paid_at
+		       fo.price, fo.status, fo.created_at, fo.paid_at, fo.expires_at
 		FROM flash_orders fo
 		JOIN flash_items fi ON fi.id = fo.flash_id
 		WHERE fo.user_id = $1

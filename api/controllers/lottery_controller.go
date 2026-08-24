@@ -45,19 +45,21 @@ func (h *LotteryController) GetLotteryList(c *gin.Context) {
 // LotteryItemCache は抽選詳細のキャッシュ用DTOです。
 // viewCountとapplyCountはリアルタイムに変わるためキャッシュせず、レスポンス時にDBから取得して合成します
 type LotteryItemCache struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	ImageS3Key    *string   `json:"imageS3Key,omitempty"`
-	DetailS3Key   *string   `json:"detailS3Key,omitempty"`
-	Price         int       `json:"price"`
-	ChosenPrice   int       `json:"chosenPrice"`
-	WinnerCount   int       `json:"winnerCount"`
-	StartsAt      time.Time `json:"startsAt"`
-	ApplyDeadline time.Time `json:"applyDeadline"`
-	DrawAt        time.Time `json:"drawAt"`
-	Category      string    `json:"category"`
-	CreatedAt     time.Time `json:"createdAt"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Description    string                 `json:"description"`
+	ImageS3Key     *string                `json:"imageS3Key,omitempty"`
+	DetailS3Key    *string                `json:"detailS3Key,omitempty"`
+	Price          int                    `json:"price"`
+	ChosenPrice    int                    `json:"chosenPrice"`
+	WinnerCount    int                    `json:"winnerCount"`
+	StartsAt       time.Time              `json:"startsAt"`
+	ApplyDeadline  time.Time              `json:"applyDeadline"`
+	DrawAt         time.Time              `json:"drawAt"`
+	Category       string                 `json:"category"`
+	CreatedAt      time.Time              `json:"createdAt"`
+	Specifications []models.Specification `json:"specifications,omitempty"`
+	Rules          []string               `json:"rules,omitempty"`
 }
 
 // LotteryDetailResponse は抽選詳細のレスポンスDTOです。
@@ -83,20 +85,28 @@ func (h *LotteryController) GetLotteryById(c *gin.Context) {
 		if err != nil {
 			return LotteryItemCache{}, err
 		}
+		// 商品仕様・注意事項（detail_json）をパースする
+		detail, err := models.ParseItemDetail(item.DetailJSON)
+		if err != nil {
+			logger.Warn("商品詳細のパースに失敗しました", zap.String("lotteryId", id), zap.Error(err))
+			detail = &models.ItemDetail{}
+		}
 		return LotteryItemCache{
-			ID:            item.ID,
-			Name:          item.Name,
-			Description:   item.Description,
-			ImageS3Key:    item.ImageS3Key,
-			DetailS3Key:   item.DetailS3Key,
-			Price:         item.Price,
-			ChosenPrice:   item.ChosenPrice,
-			WinnerCount:   item.WinnerCount,
-			StartsAt:      item.StartsAt,
-			ApplyDeadline: item.ApplyDeadline,
-			DrawAt:        item.DrawAt,
-			Category:      item.Category,
-			CreatedAt:     item.CreatedAt,
+			ID:             item.ID,
+			Name:           item.Name,
+			Description:    item.Description,
+			ImageS3Key:     item.ImageS3Key,
+			DetailS3Key:    item.DetailS3Key,
+			Price:          item.Price,
+			ChosenPrice:    item.ChosenPrice,
+			WinnerCount:    item.WinnerCount,
+			StartsAt:       item.StartsAt,
+			ApplyDeadline:  item.ApplyDeadline,
+			DrawAt:         item.DrawAt,
+			Category:       item.Category,
+			CreatedAt:      item.CreatedAt,
+			Specifications: detail.Specifications,
+			Rules:          detail.Rules,
 		}, nil
 	}, func(item LotteryItemCache) time.Duration {
 		// 抽選日までをTTLにする（抽選済みならキャッシュしない）

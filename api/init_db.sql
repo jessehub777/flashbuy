@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS flash_items (
   description TEXT NOT NULL,
   image_s3_key VARCHAR(512),
   detail_s3_key VARCHAR(512),
+  detail_json TEXT, -- 商品仕様・注意事項（JSON）。将来S3に移行予定
   price INTEGER NOT NULL CHECK (price >= 0),
   stock INTEGER NOT NULL DEFAULT 0,
   total_stock INTEGER NOT NULL,
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS lottery_items (
   description TEXT NOT NULL,
   image_s3_key VARCHAR(512),
   detail_s3_key VARCHAR(512),
+  detail_json TEXT, -- 商品仕様・注意事項（JSON）。将来S3に移行予定
   price INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
   chosen_price INTEGER NOT NULL DEFAULT 0 CHECK (chosen_price >= 0),
   winner_count INTEGER NOT NULL CHECK (winner_count > 0),

@@ -11,6 +11,7 @@ type FlashItem struct {
 	Description string    `db:"description" json:"description"`
 	ImageS3Key  *string   `db:"image_s3_key" json:"imageS3Key,omitempty"`
 	DetailS3Key *string   `db:"detail_s3_key" json:"detailS3Key,omitempty"`
+	DetailJSON  *string   `db:"detail_json" json:"-"` // 仕様・注意事項のJSON（NULL可、レスポンスでは非公開）
 	Price       int       `db:"price" json:"price"`
 	Stock       int       `db:"stock" json:"stock"`
 	TotalStock  int       `db:"total_stock" json:"totalStock"`

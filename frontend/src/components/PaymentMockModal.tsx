@@ -156,6 +156,20 @@ export default function PaymentMockModal({ orderId, orderType, amount, onClose, 
               </button>
             </div>
           )}
+
+          {/* Expired — 支払期限が過ぎた・注文がキャンセル済みのケース */}
+          {payStatus === 'expired' && (
+            <div className="text-center py-6">
+              <p className="text-flash font-semibold mb-2">支払期限が過ぎています</p>
+              <p className="text-[13px] text-muted mb-4">
+                この注文は自動キャンセルされました。<br />
+                再度購入してください。
+              </p>
+              <button className="btn-base bg-flash" onClick={() => resetPayStatus()}>
+                閉じる
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

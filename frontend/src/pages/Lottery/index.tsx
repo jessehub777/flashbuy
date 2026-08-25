@@ -1,7 +1,7 @@
 // 抽選詳細ページ — 応募情報・倍率計算・閲覧数・応募確認
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Countdown from '../../components/Countdown'
 import { api } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
@@ -12,6 +12,7 @@ export default function LotteryDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
   const { applyLottery, applyStatus, isApplied, resetApplyStatus } = useOrderStore()
   const [applied, setApplied] = useState(false)
@@ -24,8 +25,27 @@ export default function LotteryDetail() {
     enabled: !!id,
   })
 
-  const alreadyApplied = applied || (id ? isApplied(id) : false)
-  const winRate = item ? ((item.winnerCount / Math.max(item.applyCount + 1, 1)) * 100).toFixed(1) : '0'
+  // ログイン中のみ「自分の応募一覧」をサーバーから取得する
+  // （appliedIdsはメモリ上だけなので、ページリロード後も応募済みを正しく表示するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
+
+  const alreadyApplied =
+    applied || (id ? isApplied(id) : false) || myApplications.some((a) => a.lotteryId === id)
+  // 推定当選率:
+  //   - 応募者数が0 → 「—」（未定）
+  //   - 応募者数 <= 当選枠 → 100%（応募すれば必ず当選）
+  //   - 応募者数 > 当選枠 → 当選枠 / 応募者数
+  const winRate = item
+    ? item.applyCount === 0
+      ? '—'
+      : item.applyCount <= item.winnerCount
+        ? '100'
+        : ((item.winnerCount / item.applyCount) * 100).toFixed(1)
+    : '0'
 
   const handleApply = async () => {
     if (!isLoggedIn()) {
@@ -37,6 +57,10 @@ export default function LotteryDetail() {
     await applyLottery(id!)
     setApplied(true)
     resetApplyStatus()
+    // 応募者数（applyCount）はサーバー側で増えているため、詳細データを再取得して表示を更新する
+    queryClient.invalidateQueries({ queryKey: ['lottery', id] })
+    // 自分の応募一覧も再取得して、応募済み状態をサーバーと同期する
+    queryClient.invalidateQueries({ queryKey: ['myLotteryApplications'] })
   }
 
   if (isLoading) return <LoadingSkeleton />
@@ -121,15 +145,9 @@ export default function LotteryDetail() {
           <div className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase mb-2">{item.category}</div>
           <h1 className="font-oswald font-semibold text-[32px] leading-[1.1] mb-3 text-paper">{item.name}</h1>
           <div className="font-oswald font-bold text-[36px] text-paper mb-1">
-            {item.price === 0 ?
-              <span>
-                ¥0 <span className="text-[16px] font-normal text-muted">応募無料</span>
-              </span>
-            : <>
-                <span className="text-[18px] font-normal text-muted mr-1">¥</span>
-                {item.price.toLocaleString()}
-              </>
-            }
+            <span className="text-[18px] font-normal text-muted mr-1">¥</span>
+            {item.chosenPrice.toLocaleString()}
+            {item.price === 0 && <span className="text-[16px] font-normal text-muted ml-2">応募無料</span>}
           </div>
 
           <p className="text-[14px] text-muted leading-[1.8] mt-4 mb-8">{item.description}</p>
@@ -264,7 +282,9 @@ export default function LotteryDetail() {
             <h3 className="font-oswald font-semibold text-[18px] mb-2">応募を確認</h3>
             <p className="text-[14px] text-muted mb-1">{item.name}</p>
             <p className="font-mono text-[11px] text-muted mb-5 tracking-[0.5px]">
-              現在の当選確率: 約 {winRate}%（{item.applyCount.toLocaleString()}人中{item.winnerCount}名当選）
+              {item.applyCount > 0 ?
+                `現在の当選確率: 約 ${winRate}%（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
+              : `当選枠 ${item.winnerCount}名（応募者募集中）`}
             </p>
             <div className="flex gap-3">
               <button

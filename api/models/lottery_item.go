@@ -11,6 +11,7 @@ type LotteryItem struct {
 	Description   string    `db:"description" json:"description"`
 	ImageS3Key    *string   `db:"image_s3_key" json:"imageS3Key,omitempty"`
 	DetailS3Key   *string   `db:"detail_s3_key" json:"detailS3Key,omitempty"`
+	DetailJSON    *string   `db:"detail_json" json:"-"`            // 仕様・注意事項のJSON（NULL可、レスポンスでは非公開）
 	Price         int       `db:"price" json:"price"`              // 応募時の支払額
 	ChosenPrice   int       `db:"chosen_price" json:"chosenPrice"` // 当選時の支払額
 	WinnerCount   int       `db:"winner_count" json:"winnerCount"`

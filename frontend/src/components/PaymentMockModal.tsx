@@ -7,7 +7,7 @@ import type { PaymentMethod } from '../types'
 
 interface PaymentMockModalProps {
   orderId: string
-  orderNo: string
+  orderType: 'flash' | 'lottery'
   amount: number
   onClose: () => void
   onSuccess: () => void
@@ -19,12 +19,12 @@ const PAYMENT_METHODS: { id: PaymentMethod; label: string; icon: string }[] = [
   { id: 'bank_transfer', label: '銀行振込', icon: '🏦' },
 ]
 
-export default function PaymentMockModal({ orderId, orderNo, amount, onClose, onSuccess }: PaymentMockModalProps) {
+export default function PaymentMockModal({ orderId, orderType, amount, onClose, onSuccess }: PaymentMockModalProps) {
   const { payOrder, payStatus, resetPayStatus } = useOrderStore()
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('credit_card')
 
   const handlePay = async () => {
-    const ok = await payOrder(orderId, amount, selectedMethod)
+    const ok = await payOrder(orderId, orderType, amount, selectedMethod)
     if (ok) {
       setTimeout(() => {
         resetPayStatus()
@@ -61,7 +61,6 @@ export default function PaymentMockModal({ orderId, orderNo, amount, onClose, on
           <div className="bg-ink border border-white/[0.08] rounded-[4px] p-4 mb-5">
             <div className="flex justify-between items-center">
               <div>
-                <div className="font-mono text-[10px] text-muted tracking-[1.5px] mb-1">ORDER: {orderNo}</div>
                 <div className="font-mono text-[10px] text-muted tracking-[1px]">STATUS: UNPAID</div>
               </div>
               <div className="font-oswald font-bold text-[28px] text-flash">¥{amount.toLocaleString()}</div>
@@ -154,6 +153,20 @@ export default function PaymentMockModal({ orderId, orderNo, amount, onClose, on
               <p className="text-[13px] text-muted mb-4">再度お試しください。</p>
               <button className="btn-base bg-flash" onClick={() => resetPayStatus()}>
                 再試行
+              </button>
+            </div>
+          )}
+
+          {/* Expired — 支払期限が過ぎた・注文がキャンセル済みのケース */}
+          {payStatus === 'expired' && (
+            <div className="text-center py-6">
+              <p className="text-flash font-semibold mb-2">支払期限が過ぎています</p>
+              <p className="text-[13px] text-muted mb-4">
+                この注文は自動キャンセルされました。<br />
+                再度購入してください。
+              </p>
+              <button className="btn-base bg-flash" onClick={() => resetPayStatus()}>
+                閉じる
               </button>
             </div>
           )}

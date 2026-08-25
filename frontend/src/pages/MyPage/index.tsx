@@ -1,9 +1,10 @@
 // マイページ — ユーザープロフィール・注文履歴・抽選応募履歴・モック決済管理
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useOrderStore } from '../../stores/orderStore'
 import { useAuthStore } from '../../stores/authStore'
 import PaymentMockModal from '../../components/PaymentMockModal'
+import { useCountdown } from '../../hooks/useCountdown'
 import dayjs from 'dayjs'
 import type { FlashOrderStatus, LotteryOrderStatus } from '../../types'
 
@@ -14,7 +15,11 @@ export default function MyPage() {
   const defaultTab = searchParams.get('tab') === 'lottery' ? 'lottery' : 'orders'
   const [tab, setTab] = useState<'orders' | 'lottery'>(defaultTab)
   const [orderStatusFilter, setOrderStatusFilter] = useState<FlashOrderStatus | 'ALL'>('ALL')
-  const [payingOrder, setPayingOrder] = useState<{ id: string; no: string; amount: number } | null>(null)
+  const [payingOrder, setPayingOrder] = useState<{
+    id: string
+    orderType: 'flash' | 'lottery'
+    amount: number
+  } | null>(null)
 
   const { user, isLoggedIn } = useAuthStore()
   const { orders, applications, fetchOrders, fetchApplications } = useOrderStore()
@@ -127,11 +132,13 @@ export default function MyPage() {
                   key={order.id}
                   className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-5 flex items-center justify-between gap-4 hover:border-white/20 transition-colors">
                   <div className="flex-1 min-w-0">
-                    <div className="font-mono text-[10px] text-muted tracking-[1px] mb-1">{order.orderNo}</div>
                     <div className="font-semibold text-paper truncate text-[15px]">{order.saleName}</div>
                     <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
                       注文日時: {dayjs(order.createdAt).format('YYYY/MM/DD HH:mm')}
                     </div>
+                    {order.status === 'UNPAID' && order.expiresAt && (
+                      <PaymentDeadline deadline={order.expiresAt} onExpired={fetchOrders} />
+                    )}
                   </div>
                   <div className="text-right flex-none">
                     <div className="font-oswald font-bold text-[20px] text-paper mb-1">
@@ -142,7 +149,7 @@ export default function MyPage() {
                       {order.status === 'UNPAID' && (
                         <button
                           className="mt-1 px-3 py-1 bg-flash text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                          onClick={() => setPayingOrder({ id: order.id, no: order.orderNo, amount: order.price })}>
+                          onClick={() => setPayingOrder({ id: order.id, orderType: 'flash', amount: order.price })}>
                           支払う →
                         </button>
                       )}
@@ -170,15 +177,16 @@ export default function MyPage() {
                     応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
                   </div>
                   {app.status === 'UNPAID' && app.payDeadline && (
-                    <div className="font-mono text-[11px] text-flash mt-1 tracking-[0.5px] font-semibold">
-                      支払期限: {dayjs(app.payDeadline).format('MM/DD HH:mm')} まで
-                    </div>
+                    <PaymentDeadline deadline={app.payDeadline} onExpired={fetchApplications} />
                   )}
                 </div>
                 <div className="text-right flex-none">
                   {(app.status === 'UNPAID' || app.status === 'PAID') && (
                     <div className="font-oswald font-bold text-[18px] text-paper mb-1">
-                      ¥{(app.price ?? 9800).toLocaleString()}
+                      ¥{(app.chosenPrice ?? 0).toLocaleString()}
+                      {app.price === 0 && (
+                        <span className="text-[10px] font-normal text-muted ml-1">応募無料</span>
+                      )}
                     </div>
                   )}
                   <div className="flex flex-col items-end gap-1">
@@ -186,13 +194,7 @@ export default function MyPage() {
                     {app.status === 'UNPAID' && (
                       <button
                         className="mt-1 px-3 py-1 bg-lottery text-paper font-mono text-[11px] tracking-[0.5px] rounded-[2px] hover:brightness-110 transition-all font-semibold"
-                        onClick={() =>
-                          setPayingOrder({
-                            id: app.id,
-                            no: `LOT-${app.id.toUpperCase()}`,
-                            amount: app.price ?? 9800,
-                          })
-                        }>
+                        onClick={() => setPayingOrder({ id: app.id, orderType: 'lottery', amount: app.chosenPrice ?? 0 })}>
                         支払う →
                       </button>
                     )}
@@ -208,7 +210,7 @@ export default function MyPage() {
       {payingOrder && (
         <PaymentMockModal
           orderId={payingOrder.id}
-          orderNo={payingOrder.no}
+          orderType={payingOrder.orderType}
           amount={payingOrder.amount}
           onClose={() => setPayingOrder(null)}
           onSuccess={() => {
@@ -252,4 +254,53 @@ function LotteryResultBadge({ status }: { status: LotteryOrderStatus }) {
 
 function EmptyState({ message }: { message: string }) {
   return <div className="py-16 text-center font-mono text-[13px] text-muted tracking-[0.5px]">{message}</div>
+}
+
+// 支払期限までの残り時間を表示する（期限を過ぎたら自動キャンセルの警告を出す）
+// 期限切れになったら onExpired を呼び、親で注文一覧を再取得させる。
+// サーバーの期限切れ処理（order_expirer、30秒間隔）が走るまでの間は
+// 5秒ごとに再取得を続ける。親側で注文が CANCELLED / PAID に変わると
+// このコンポーネント自体がアンマウントされるため、自動で停止する
+function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?: () => void }) {
+  const { days, hours, minutes, seconds, isExpired } = useCountdown(deadline)
+  const expiredNotified = useRef(false)
+
+  // 期限切れになったら（初回表示時点で既に切れている場合も含め）即座に通知する
+  useEffect(() => {
+    if (isExpired && !expiredNotified.current) {
+      expiredNotified.current = true
+      onExpired?.()
+    }
+  }, [isExpired, onExpired])
+
+  // 期限切れ後もサーバーのキャンセル反映まで5秒ごとに再取得を試みる
+  useEffect(() => {
+    if (!isExpired) return
+    const timer = setInterval(() => onExpired?.(), 5000)
+    return () => clearInterval(timer)
+  }, [isExpired, onExpired])
+
+  // 残り時間が少なくなったら赤く点滅させて注意を促す（5分未満）
+  const urgent = !isExpired && Number(hours) === 0 && Number(minutes) < 5
+
+  if (isExpired) {
+    return (
+      <div className="font-mono text-[11px] text-flash mt-1 tracking-[0.5px] font-semibold animate-pulse">
+        ⚠ 支払期限切れ — 注文は自動キャンセルされます
+      </div>
+    )
+  }
+
+  const numDays = Number(days)
+  const timeText =
+    numDays > 0 ? `${numDays}日 ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`
+
+  return (
+    <div
+      className={`font-mono text-[11px] mt-1 tracking-[0.5px] font-semibold ${
+        urgent ? 'text-flash animate-pulse' : 'text-warning'
+      }`}>
+      支払期限まで {timeText}
+    </div>
+  )
 }

@@ -2,12 +2,14 @@
 import { create } from 'zustand'
 import type { FlashOrderItem, LotteryOrderItem, FlashOrderStatus } from '../types'
 import { api } from '../services/api'
+import { ApiError } from '../services/request'
 
 interface OrderState {
   // Flash orders
   orders: FlashOrderItem[]
-  unpaidOrderNo: string | null
   buyStatus: 'idle' | 'queuing' | 'queued' | 'sold_out' | 'error'
+  // 購入直後の支払いに使う注文ID（購入成功時にセットされる）
+  currentOrderId: string | null
 
   // Lottery applications
   applications: LotteryOrderItem[]
@@ -15,12 +17,12 @@ interface OrderState {
   appliedIds: Set<string>
 
   // Payment
-  payStatus: 'idle' | 'processing' | 'success' | 'failed'
+  payStatus: 'idle' | 'processing' | 'success' | 'failed' | 'expired'
 
   // Actions
   flashBuy: (saleId: string) => Promise<void>
   applyLottery: (lotteryId: string) => Promise<void>
-  payOrder: (orderId: string, amount: number, method: string) => Promise<boolean>
+  payOrder: (orderId: string, orderType: 'flash' | 'lottery', amount: number, method: string) => Promise<boolean>
   fetchOrders: () => Promise<void>
   fetchApplications: () => Promise<void>
   resetBuyStatus: () => void
@@ -31,19 +33,20 @@ interface OrderState {
 
 export const useOrderStore = create<OrderState>((set, get) => ({
   orders: [],
-  unpaidOrderNo: null,
   buyStatus: 'idle',
+  currentOrderId: null,
   applications: [],
   applyStatus: 'idle',
   appliedIds: new Set<string>(),
   payStatus: 'idle',
 
   flashBuy: async (saleId) => {
-    set({ buyStatus: 'queuing', unpaidOrderNo: null })
+    set({ buyStatus: 'queuing', currentOrderId: null })
     try {
       const result = await api.flashBuy(saleId)
       if (result.status === 'QUEUED') {
-        set({ buyStatus: 'queued', unpaidOrderNo: result.orderNo })
+        // 支払い画面で使う注文IDを保存する
+        set({ buyStatus: 'queued', currentOrderId: result.orderId })
       } else {
         set({ buyStatus: 'sold_out' })
       }
@@ -65,11 +68,12 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     }
   },
 
-  payOrder: async (orderId, amount, method) => {
+  payOrder: async (orderId, orderType, amount, method) => {
     set({ payStatus: 'processing' })
     try {
       const result = await api.processMockPayment({
         orderId,
+        orderType,
         amount,
         method: method as 'credit_card',
       })
@@ -86,8 +90,14 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         set({ payStatus: 'failed' })
         return false
       }
-    } catch {
-      set({ payStatus: 'failed' })
+    } catch (e) {
+      // パラメータエラー（400）は注文が期限切れ・キャンセル済みの可能性が高い。
+      // ランダムな決済失敗とは区別して表示する
+      if (e instanceof ApiError && e.code === 400) {
+        set({ payStatus: 'expired' })
+      } else {
+        set({ payStatus: 'failed' })
+      }
       return false
     }
   },
@@ -102,7 +112,7 @@ export const useOrderStore = create<OrderState>((set, get) => ({
     set({ applications })
   },
 
-  resetBuyStatus: () => set({ buyStatus: 'idle', unpaidOrderNo: null }),
+  resetBuyStatus: () => set({ buyStatus: 'idle', currentOrderId: null }),
   resetApplyStatus: () => set({ applyStatus: 'idle' }),
   resetPayStatus: () => set({ payStatus: 'idle' }),
   isApplied: (lotteryId) => get().appliedIds.has(lotteryId),

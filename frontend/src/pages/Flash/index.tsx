@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import Countdown from '../../components/Countdown'
 import StockDots from '../../components/StockDots'
@@ -15,12 +15,12 @@ export default function FlashDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
-  const { flashBuy, buyStatus, resetBuyStatus } = useOrderStore()
+  const { flashBuy, buyStatus, resetBuyStatus, currentOrderId } = useOrderStore()
 
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [payOrderNo, setPayOrderNo] = useState('')
 
   // IDでセール情報を取得する（同時に閲覧数が1増やされる）
   const { data: sale, isLoading } = useQuery({
@@ -39,10 +39,12 @@ export default function FlashDetail() {
     }
     setShowOrderModal(true)
     await flashBuy(id!)
+    // 在庫はサーバー側で減っているため、詳細データを再取得して表示を更新する
+    // （成功・売切・失敗のいずれの場合も最新の在庫を反映する）
+    queryClient.invalidateQueries({ queryKey: ['flash', id] })
   }
 
-  const handleProceedPayment = (orderNo: string) => {
-    setPayOrderNo(orderNo)
+  const handleProceedPayment = () => {
     setShowOrderModal(false)
     setShowPaymentModal(true)
   }
@@ -226,8 +228,8 @@ export default function FlashDetail() {
 
       {showPaymentModal && (
         <PaymentMockModal
-          orderId={`ord-${Date.now()}`}
-          orderNo={payOrderNo}
+          orderId={currentOrderId ?? ''}
+          orderType="flash"
           amount={sale.price}
           onClose={() => setShowPaymentModal(false)}
           onSuccess={handlePaySuccess}

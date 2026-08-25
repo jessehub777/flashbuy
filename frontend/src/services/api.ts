@@ -12,6 +12,7 @@ import type {
   HomeTop10,
   User,
 } from '../types'
+import type { AdminFlashPayload, AdminLotteryPayload } from '../types'
 import { request, requestPost, toImageUrl } from './request'
 
 // ===== 動的ステータス計算 =====
@@ -55,10 +56,9 @@ export const api = {
     return res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) }))
   },
 
-  // IDでフラッシュセールを取得する（閲覧数を1増やす）
+  // IDでフラッシュセールを取得する（バックエンド側で閲覧数+1済みの値を返す）
   async getFlashById(id: string): Promise<FlashItem> {
     const res = await request<{ flashItem: any }>(`/api/v1/flash/getFlashById/${id}`)
-    res.flashItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
     return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
@@ -68,10 +68,9 @@ export const api = {
     return res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) }))
   },
 
-  // IDで抽選情報を取得する（閲覧数を1増やす）
+  // IDで抽選情報を取得する（バックエンド側で閲覧数+1済みの値を返す）
   async getLotteryById(id: string): Promise<LotteryItem> {
     const res = await request<{ lotteryItem: any }>(`/api/v1/lottery/getLotteryById/${id}`)
-    res.lotteryItem.viewCount += 1 // ページが見られたので閲覧数をプラスする
     return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 
@@ -91,7 +90,7 @@ export const api = {
   },
 
   // フラッシュ購入 — 在庫確認→注文投入
-  async flashBuy(saleId: string): Promise<{ orderNo: string; status: 'QUEUED' | 'SOLD_OUT' }> {
+  async flashBuy(saleId: string): Promise<{ orderId: string; status: 'QUEUED' | 'SOLD_OUT' }> {
     return requestPost('/api/v1/flash/buy', { saleId })
   },
 
@@ -102,12 +101,12 @@ export const api = {
 
   // マイページ — 注文・応募履歴を取得する
   async getMyFlashOrderList(): Promise<FlashOrderItem[]> {
-    const res = await request<{ flashOrderList: FlashOrderItem[] }>('/api/v1/my/flashOrders')
+    const res = await request<{ flashOrderList: FlashOrderItem[] }>('/api/v1/my/flashOrderList')
     return res.flashOrderList
   },
 
   async getMyLotteryApplicationList(): Promise<LotteryOrderItem[]> {
-    const res = await request<{ lotteryOrderList: LotteryOrderItem[] }>('/api/v1/my/lotteryApplications')
+    const res = await request<{ lotteryOrderList: LotteryOrderItem[] }>('/api/v1/my/lotteryOrderList')
     return res.lotteryOrderList
   },
 
@@ -116,21 +115,41 @@ export const api = {
     return requestPost('/api/v1/payment/mock', payload)
   },
 
+  // 管理画面用 — 全フラッシュセール取得（終了済みも含む）
+  async adminGetFlashList(): Promise<FlashItem[]> {
+    const res = await request<{ flashList: any[] }>('/api/v1/admin/flash/list')
+    return res.flashList.map((s) => ({ ...toImageUrl(s), status: computeFlashStatus(s) }))
+  },
+
+  // 管理画面用 — 全抽選取得（終了済みも含む）
+  async adminGetLotteryList(): Promise<LotteryItem[]> {
+    const res = await request<{ lotteryList: any[] }>('/api/v1/admin/lottery/list')
+    return res.lotteryList.map((l) => ({ ...toImageUrl(l), status: computeLotteryStatus(l) }))
+  },
+
   // 管理画面用 — 新規フラッシュセール作成 API
-  async createFlash(sale: Partial<FlashItem>): Promise<FlashItem> {
-    const res = await requestPost<{ flashItem: FlashItem }>('/api/v1/admin/flash', sale)
-    return res.flashItem
+  async createFlash(sale: AdminFlashPayload): Promise<FlashItem> {
+    const res = await requestPost<{ flashItem: any }>('/api/v1/admin/flash', sale)
+    return { ...toImageUrl(res.flashItem), status: computeFlashStatus(res.flashItem) }
   },
 
   // 管理画面用 — 新規抽選作成 API
-  async createLottery(lottery: Partial<LotteryItem>): Promise<LotteryItem> {
-    const res = await requestPost<{ lotteryItem: LotteryItem }>('/api/v1/admin/lottery', lottery)
-    return res.lotteryItem
+  async createLottery(lottery: AdminLotteryPayload): Promise<LotteryItem> {
+    const res = await requestPost<{ lotteryItem: any }>('/api/v1/admin/lottery', lottery)
+    return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 
-  // ログイン
+  // ログイン（IDトークン + リフレッシュトークン）
   async login(email: string, password: string) {
-    return requestPost<{ user: User; token: string }>('/api/v1/auth/login', { email, password })
+    return requestPost<{ user: User; token: string; refreshToken: string }>('/api/v1/auth/login', {
+      email,
+      password,
+    })
+  },
+
+  // リフレッシュトークンで新しいIDトークンを取得（トークン自動更新）
+  async refreshToken(refreshToken: string) {
+    return requestPost<{ token: string }>('/api/v1/auth/refresh', { refreshToken })
   },
 
   // ログアウト

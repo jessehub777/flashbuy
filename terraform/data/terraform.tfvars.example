@@ -1,0 +1,15 @@
+# このファイルを terraform.tfvars にコピーして実値を設定する（.gitignoreで除外済み）
+# cp terraform.tfvars.example terraform.tfvars
+
+environment = "dev"
+
+# 開発者端末のグローバルIP（/32）を指定すると、RDS/Redisへ直接接続できるようになる
+# 例: ["203.0.113.10/32"]  ※ 確認: curl ifconfig.me
+allowed_admin_cidrs = ["YOUR_PUBLIC_IP/32"]
+
+db_username = "flashbuy"
+db_password = "CHANGE_ME_STRONG_PASSWORD"
+
+# 無料枠（db.t4g.micro / db.t3.micro）に収める
+db_instance_class = "db.t4g.micro"
+redis_node_type   = "cache.t4g.micro"

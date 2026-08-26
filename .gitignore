@@ -127,6 +127,8 @@ secrets/
 *.secret
 config.local.*
 config.prod.*
+# ローカル開発をクラウドに接続するための実設定
+config-dev.yaml
 
 # ===== Lambda build artifacts =====
 lambdas/*/bootstrap

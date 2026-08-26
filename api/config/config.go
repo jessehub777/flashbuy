@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -61,7 +62,7 @@ type AWSConfig struct {
 func LoadConfig() (*Config, error) {
 	env := os.Getenv("APP_ENV")
 	if env == "" {
-		env = "local" // デフォルトは local
+		env = "dev" // デフォルトは dev
 	}
 
 	// 環境に応じた設定ファイルを読み込む (config-local.yaml, config-prod.yaml など)
@@ -72,6 +73,9 @@ func LoadConfig() (*Config, error) {
 	// AWS環境変数の読み込み設定
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("FLASHBUY")
+	// ネストした設定キー（database.password など）を環境変数で上書きできるようにする
+	// 例: FLASHBUY_DATABASE_PASSWORD=xxx で database.password を設定
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// 設定ファイルが存在する場合は読み込む
 	if err := viper.ReadInConfig(); err != nil {

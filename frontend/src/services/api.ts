@@ -27,14 +27,15 @@ export function computeFlashStatus(item: FlashItem): FlashStatus {
   return 'ACTIVE'
 }
 
-// 抽選の状態を「締切日」と「抽選日」から計算する
-export function computeLotteryStatus(item: LotteryItem): LotteryStatus {
-  const n = dayjs()
+// 抽選の状態を「締切日」と「抽選日」から計算する。
+// now を省略した場合は現在時刻を使う（リスト等の静的な呼び出し）。
+// 詳細ページでは now を渡してリアルタイムに状態を再計算する。
+export function computeLotteryStatus(item: LotteryItem, now: dayjs.Dayjs = dayjs()): LotteryStatus {
   // 応募開始前は UPCOMING
-  if (n.isBefore(dayjs(item.startsAt))) return 'UPCOMING'
+  if (now.isBefore(dayjs(item.startsAt))) return 'UPCOMING'
   // 抽選日以降は ENDED (DRAWNは廃止しENDEDに一元化)
-  if (n.isAfter(dayjs(item.drawAt))) return 'ENDED'
-  if (n.isAfter(dayjs(item.applyDeadline))) return 'DRAWING'
+  if (now.isAfter(dayjs(item.drawAt))) return 'ENDED'
+  if (now.isAfter(dayjs(item.applyDeadline))) return 'DRAWING'
   return 'ACTIVE'
 }
 

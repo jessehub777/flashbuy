@@ -1,0 +1,203 @@
+// LotteryDrawer — 抽選開票を行う Lambda 関数。
+//
+// EventBridge Scheduler が draw_at 時刻に一回だけトリガーする（Schedule は Admin API が作成時に登録）。
+// 処理内容:
+//  1. RDS から WAITING 状態の応募一覧を取得
+//  2. draw パッケージ（crypto/rand + Fisher-Yates）で当選者を選出
+//  3. トランザクションで当選者を UNPAID（支払期限3日）、落選者を LOST に一括更新
+//  4. SNS トピック lottery.drawn に結果イベントを発行
+//
+// 環境変数:
+//
+//	DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_SSLMODE
+//	DB_SECRET_ARN（Secrets Manager からパスワード取得。未設定なら DB_PASSWORD にフォールバック）
+//	SNS_TOPIC_ARN（空なら SNS 発行をスキップ）
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"flashbuy/lambdas/lottery_drawer/draw"
+
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+)
+
+// Event は EventBridge Scheduler の Target Input。
+// Admin API が Schedule を作成する際に指定する。
+type Event struct {
+	LotteryID string `json:"lotteryId"`
+}
+
+// 当選者の支払期限（当選日から3日）
+const payDeadlineDuration = 72 * time.Hour
+
+func handler(ctx context.Context, event Event) error {
+	if event.LotteryID == "" {
+		return fmt.Errorf("lotteryId が空です")
+	}
+	log.Printf("抽選を開始します: lotteryId=%s", event.LotteryID)
+
+	db, err := connectDB()
+	if err != nil {
+		return fmt.Errorf("DB接続に失敗しました: %w", err)
+	}
+	defer db.Close()
+
+	winnerCount, appliedCount, err := drawLottery(db, event.LotteryID)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("抽選が完了しました: lotteryId=%s, 応募=%d名, 当選=%d名",
+		event.LotteryID, appliedCount, winnerCount)
+
+	// SNS への結果イベント発行（ARN 未設定ならスキップ）
+	if err := publishResult(ctx, event.LotteryID, appliedCount, winnerCount); err != nil {
+		// 開票自体は完了しているため、SNS 失敗でエラーにはしない（ログのみ）
+		log.Printf("SNS発行に失敗しました（開票結果はDBに反映済み）: %v", err)
+	}
+	return nil
+}
+
+// drawLottery は抽選の本体。単一トランザクションで開票結果を書き込む。
+// 返り値: 当選者数, 応募者数
+func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
+	tx, err := db.Beginx()
+	if err != nil {
+		return 0, 0, fmt.Errorf("トランザクション開始に失敗しました: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 当選枠数を取得（応募者より多い場合は全員当選になるため、枠数をそのまま使う）
+	var winnerCount int
+	if err := tx.Get(&winnerCount,
+		`SELECT winner_count FROM lottery_items WHERE id = $1`, lotteryID); err != nil {
+		return 0, 0, fmt.Errorf("抽選商品の取得に失敗しました（存在しない可能性）: %w", err)
+	}
+
+	// WAITING 状態の応募者を取得
+	var applicantIDs []string
+	if err := tx.Select(&applicantIDs,
+		`SELECT id FROM lottery_orders WHERE lottery_id = $1 AND status = 'WAITING'`,
+		lotteryID); err != nil {
+		return 0, 0, fmt.Errorf("応募一覧の取得に失敗しました: %w", err)
+	}
+
+	if len(applicantIDs) == 0 {
+		// 応募なし、または既に開票済み（WAITING が残っていない）。冪等として正常終了する
+		log.Printf("対象の WAITING 応募がありません（応募なし or 開票済み）: lotteryId=%s", lotteryID)
+		return 0, 0, nil
+	}
+
+	// 抽選実行（crypto/rand + Fisher-Yates）
+	winnerIDs, loserIDs := draw.PickWinners(applicantIDs, winnerCount)
+
+	// 当選者: UNPAID + 支払期限を設定
+	payDeadline := time.Now().Add(payDeadlineDuration)
+	if len(winnerIDs) > 0 {
+		query, args, err := sqlx.In(`
+			UPDATE lottery_orders
+			SET status = 'UNPAID', pay_deadline = ?, updated_at = now()
+			WHERE id IN (?)`, payDeadline, winnerIDs)
+		if err != nil {
+			return 0, 0, fmt.Errorf("当選者更新SQLの構築に失敗しました: %w", err)
+		}
+		query = tx.Rebind(query)
+		if _, err := tx.Exec(query, args...); err != nil {
+			return 0, 0, fmt.Errorf("当選者の更新に失敗しました: %w", err)
+		}
+	}
+
+	// 落選者: LOST
+	if len(loserIDs) > 0 {
+		query, args, err := sqlx.In(`
+			UPDATE lottery_orders
+			SET status = 'LOST', updated_at = now()
+			WHERE id IN (?)`, loserIDs)
+		if err != nil {
+			return 0, 0, fmt.Errorf("落選者更新SQLの構築に失敗しました: %w", err)
+		}
+		query = tx.Rebind(query)
+		if _, err := tx.Exec(query, args...); err != nil {
+			return 0, 0, fmt.Errorf("落選者の更新に失敗しました: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("コミットに失敗しました: %w", err)
+	}
+	return len(winnerIDs), len(applicantIDs), nil
+}
+
+// connectDB は RDS への接続を作る。
+// パスワードは Secrets Manager（DB_SECRET_ARN）から取得する。
+// DB_SECRET_ARN 未設定の場合は DB_PASSWORD 環境変数にフォールバックする（ローカル実行用）。
+func connectDB() (*sqlx.DB, error) {
+	host := envOr("DB_HOST", "")
+	port := envOr("DB_PORT", "5432")
+	name := envOr("DB_NAME", "flashbuy")
+	user := envOr("DB_USER", "flashbuy")
+	sslmode := envOr("DB_SSLMODE", "require")
+
+	// パスワード取得: Secrets Manager 優先、なければ環境変数
+	password := os.Getenv("DB_PASSWORD")
+	if secretARN := os.Getenv("DB_SECRET_ARN"); secretARN != "" {
+		v, err := getSecretValue(context.TODO(), secretARN)
+		if err != nil {
+			return nil, fmt.Errorf("Secrets Managerからのパスワード取得に失敗しました: %w", err)
+		}
+		password = v
+	}
+
+	if host == "" || password == "" {
+		return nil, fmt.Errorf("DB_HOST が未設定、または DB_SECRET_ARN / DB_PASSWORD が取得できません")
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		host, port, user, password, name, sslmode)
+	return sqlx.Connect("postgres", dsn)
+}
+
+// publishResult は SNS トピック lottery.drawn に開票結果イベントを発行する
+func publishResult(ctx context.Context, lotteryID string, appliedCount, winnerCount int) error {
+	topicArn := os.Getenv("SNS_TOPIC_ARN")
+	if topicArn == "" {
+		return nil // 未設定ならスキップ
+	}
+
+	// SNS クライアントは都度生成で十分（呼び出し頻度が極めて低いため）
+	// 循環 import を避けるため、このファイル内で初期化する
+	client, err := newSNSClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"event":        "lottery.drawn",
+		"lotteryId":    lotteryID,
+		"appliedCount": appliedCount,
+		"winnerCount":  winnerCount,
+		"drawnAt":      time.Now().UTC().Format(time.RFC3339),
+	})
+
+	_, err = client.publish(ctx, topicArn, string(payload))
+	return err
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func main() {
+	lambda.Start(handler)
+}

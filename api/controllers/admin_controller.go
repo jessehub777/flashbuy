@@ -9,6 +9,7 @@ import (
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
 	"flashbuy/api/pkg/response"
+	"flashbuy/api/pkg/scheduler"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -194,6 +195,13 @@ func (h *AdminController) CreateLottery(c *gin.Context) {
 	// 一覧・ホームのキャッシュを無効化する
 	if err := cache.Del(cache.KeyLotteryList, cache.KeyHomeTop10); err != nil {
 		logger.Warn("抽選一覧キャッシュの削除に失敗しました", zap.Error(err))
+	}
+
+	// draw_at 時刻のワンタイム開票ScheduleをEventBridgeに登録する
+	// （設定が空のローカル環境ではスキップされる。登録失敗しても商品作成は成功扱いとし、ログのみ残す）
+	if err := scheduler.RegisterDrawSchedule(item.ID, item.DrawAt); err != nil {
+		logger.Warn("開票スケジュールの登録に失敗しました",
+			zap.String("lotteryId", item.ID), zap.Error(err))
 	}
 
 	logger.Info("抽選を作成しました", zap.String("lotteryId", item.ID))

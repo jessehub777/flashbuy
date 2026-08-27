@@ -1,9 +1,9 @@
 // 抽選詳細ページ — 応募情報・倍率計算・閲覧数・応募確認
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Countdown from '../../components/Countdown'
-import { api } from '../../services/api'
+import { api, computeLotteryStatus } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
 import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
@@ -63,10 +63,21 @@ export default function LotteryDetail() {
     queryClient.invalidateQueries({ queryKey: ['myLotteryApplications'] })
   }
 
+  // 現在時刻を1秒ごとに更新し、ステータスをリアルタイムに再計算する。
+  // ステータスは「締切/抽選日」との時刻比較で決まるため、サーバー再取得は不要。
+  // 締切を跨ぐと自動的に ACTIVE → DRAWING、抽選日を跨ぐと DRAWING → ENDED へ遷移する。
+  const [now, setNow] = useState(() => dayjs())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   if (isLoading) return <LoadingSkeleton />
   if (!item) return <div className="p-10 text-muted font-mono">指定された抽選が見つかりません</div>
 
-  const isActive = item.status === 'ACTIVE'
+  // リアルタイム状態（item の time フィールド + ローカル時刻から導出）
+  const status = computeLotteryStatus(item, now)
+  const isActive = status === 'ACTIVE'
 
   return (
     <div className="max-w-5xl mx-auto px-10 py-10 page-enter max-sm:px-5">
@@ -85,7 +96,7 @@ export default function LotteryDetail() {
             style={{ background: 'linear-gradient(135deg, #dce4f5, #c5d3ee)' }}>
             {/* ステータスタグ（予告: パープル, 応募済: エメラルド, 受付中: ブルー, 抽選中: アンバー, 終了: ダークグレー） */}
             <div className="absolute top-4 right-4 flex items-center gap-1.5 z-10">
-              {item.status === 'UPCOMING' && !alreadyApplied && (
+              {status === 'UPCOMING' && !alreadyApplied && (
                 <span className="font-mono text-[10px] tracking-[1px] font-semibold px-[9px] py-1 rounded-[2px] bg-purple-500 text-white shadow-sm">
                   予告
                 </span>
@@ -100,12 +111,12 @@ export default function LotteryDetail() {
                   受付中
                 </span>
               )}
-              {item.status === 'DRAWING' && (
+              {status === 'DRAWING' && (
                 <span className="font-mono text-[10px] tracking-[1px] font-bold px-[9px] py-1 rounded-[2px] bg-amber-500 text-black animate-pulse shadow-sm">
                   抽選中
                 </span>
               )}
-              {!alreadyApplied && item.status !== 'UPCOMING' && !isActive && item.status !== 'DRAWING' && (
+              {!alreadyApplied && status !== 'UPCOMING' && !isActive && status !== 'DRAWING' && (
                 <span className="font-mono text-[10px] tracking-[1px] font-semibold px-[9px] py-1 rounded-[2px] bg-black/75 text-white/60 border border-white/20">
                   終了
                 </span>
@@ -153,27 +164,30 @@ export default function LotteryDetail() {
           <p className="text-[14px] text-muted leading-[1.8] mt-4 mb-8">{item.description}</p>
 
           {/* Countdown — UPCOMING / DRAWING / 通常受付のステータス表示 */}
+          {/* ステータスはローカル時刻からリアルタイム計算されるため、カウントダウンが0になると
+              このコンポーネント自体が次レンダリングで対応する状態に切り替わる */}
           <div className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-4 mb-4">
-            {item.status === 'UPCOMING' ?
+            {status === 'UPCOMING' ?
               <>
                 <div className="font-mono text-[10px] text-purple-400 tracking-[1.5px] uppercase mb-3">
                   応募開始まで
                 </div>
                 <Countdown targetDate={item.startsAt} label="" showDays expiredText="受付開始" />
               </>
-            : item.status === 'DRAWING' ?
+            : status === 'DRAWING' ?
               <>
                 <div className="font-mono text-[10px] text-amber-400 tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 抽選集計中
                 </div>
-                <Countdown targetDate={item.applyDeadline} label="" showDays={false} expiredText="受付終了（抽選集計中）" />
+                {/* 開票時刻（drawAt）までのカウントダウン。0になると status が ENDED に遷移する */}
+                <Countdown targetDate={item.drawAt} label="" showDays expiredText="当落発表" />
               </>
             : !isActive ?
               <>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 応募受付終了
                 </div>
-                <Countdown targetDate={item.applyDeadline} label="" showDays={false} expiredText="受付終了" />
+                <Countdown targetDate={item.drawAt} label="" showDays expiredText="当落発表" />
               </>
             : <>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3">応募締切まで</div>
@@ -200,7 +214,7 @@ export default function LotteryDetail() {
                 </div>
               </div>
             </div>
-          : item.status === 'UPCOMING' ?
+          : status === 'UPCOMING' ?
             /* 予告：応募ボタンを disabled 表示 */
             <div>
               <button
@@ -215,10 +229,10 @@ export default function LotteryDetail() {
           : !isActive ?
             <div className="p-4 bg-white/[0.04] border border-white/[0.1] rounded-[4px] text-center">
               <div className="text-paper/70 font-semibold text-[14px]">
-                {item.status === 'DRAWING' ? '受付終了（抽選集計中）' : '受付終了'}
+                {status === 'DRAWING' ? '受付終了（抽選集計中）' : '受付終了'}
               </div>
               <div className="font-mono text-[10px] text-muted mt-1 tracking-[0.5px]">
-                {item.status === 'DRAWING' ?
+                {status === 'DRAWING' ?
                   '現在抽選の集計を行っております。当落発表までお待ちください。'
                 : 'この抽選イベントの応募受付は終了しました。'}
               </div>

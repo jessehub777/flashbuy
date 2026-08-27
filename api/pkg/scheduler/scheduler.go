@@ -63,7 +63,9 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 	groupName := cfg.ScheduleGroupName
 	arn := cfg.DrawerFunctionARN
 	roleArn := cfg.ExecutionRoleARN
-	at := drawAt.UTC().Format("2006-01-02T15:04:05") + "Z"
+	// at() 式は UTC 時刻を yyyy-mm-ddThh:mm:ss 形式で指定する（Z サフィックスは付与しない。
+	// Z を付けると ValidationException: Invalid Schedule Expression になる）
+	at := drawAt.UTC().Format("2006-01-02T15:04:05")
 
 	_, err := client.CreateSchedule(context.TODO(), &scheduler.CreateScheduleInput{
 		Name:               &name,

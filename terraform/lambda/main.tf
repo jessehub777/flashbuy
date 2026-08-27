@@ -170,12 +170,14 @@ resource "aws_lambda_function" "lottery_drawer" {
 
   environment {
     variables = {
-      DB_HOST       = data.terraform_remote_state.data.outputs.rds_host
-      DB_PORT       = tostring(data.terraform_remote_state.data.outputs.rds_port)
-      DB_NAME       = data.terraform_remote_state.data.outputs.db_name
-      DB_USER       = data.terraform_remote_state.data.outputs.db_username
-      DB_SECRET_ARN = aws_secretsmanager_secret.db_password.arn
-      DB_SSLMODE    = "require"
+      DB_HOST     = data.terraform_remote_state.data.outputs.rds_host
+      DB_PORT     = tostring(data.terraform_remote_state.data.outputs.rds_port)
+      DB_NAME     = data.terraform_remote_state.data.outputs.db_name
+      DB_USER     = data.terraform_remote_state.data.outputs.db_username
+      # PoC: パスワードは環境変数で直接渡す（VPC内LambdaからはSecrets Managerへ到達できないため。
+      # 本番移行時はNAT/VPC Endpointを用意し、DB_SECRET_ARN + Secrets Manager方式に戻す）
+      DB_PASSWORD = var.db_password
+      DB_SSLMODE  = "require"
       SNS_TOPIC_ARN = aws_sns_topic.lottery_drawn.arn
     }
   }

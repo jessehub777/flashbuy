@@ -96,10 +96,20 @@ func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
 		return 0, 0, nil
 	}
 
-	// 抽選実行（crypto/rand + Fisher-Yates）
-	winnerIDs, loserIDs := draw.PickWinners(applicantIDs, winnerCount)
+	// 抽選実行（crypto/rand + Fisher-Yates）。当選者IDのみ取得すればよい
+	winnerIDs, _ := draw.PickWinners(applicantIDs, winnerCount)
 
-	// 当選者: UNPAID + 支払期限を設定
+	// ① 全応募者を一旦 LOST に更新する（WHERE 条件のみで更新できるため、
+	//    超長の IN リスト（例: 10万人分）を構築する必要がない）
+	//    status='WAITING' を条件にすることで、既に PAID / CANCELLED の行を巻き込まない（冪等性）
+	if _, err := tx.Exec(`
+		UPDATE lottery_orders
+		SET status = 'LOST', updated_at = now()
+		WHERE lottery_id = $1 AND status = 'WAITING'`, lotteryID); err != nil {
+		return 0, 0, fmt.Errorf("落選者の更新に失敗しました: %w", err)
+	}
+
+	// ② 当選者のみ UNPAID + 支払期限で上書きする（対象は winner_count 件のみ）
 	payDeadline := time.Now().Add(payDeadlineDuration)
 	if len(winnerIDs) > 0 {
 		query, args, err := sqlx.In(`
@@ -112,21 +122,6 @@ func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
 		query = tx.Rebind(query)
 		if _, err := tx.Exec(query, args...); err != nil {
 			return 0, 0, fmt.Errorf("当選者の更新に失敗しました: %w", err)
-		}
-	}
-
-	// 落選者: LOST
-	if len(loserIDs) > 0 {
-		query, args, err := sqlx.In(`
-			UPDATE lottery_orders
-			SET status = 'LOST', updated_at = now()
-			WHERE id IN (?)`, loserIDs)
-		if err != nil {
-			return 0, 0, fmt.Errorf("落選者更新SQLの構築に失敗しました: %w", err)
-		}
-		query = tx.Rebind(query)
-		if _, err := tx.Exec(query, args...); err != nil {
-			return 0, 0, fmt.Errorf("落選者の更新に失敗しました: %w", err)
 		}
 	}
 

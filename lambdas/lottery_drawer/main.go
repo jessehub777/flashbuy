@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -44,7 +44,7 @@ func handler(ctx context.Context, event Event) error {
 	if event.LotteryID == "" {
 		return fmt.Errorf("lotteryId が空です")
 	}
-	log.Printf("抽選を開始します: lotteryId=%s", event.LotteryID)
+	slog.Info("抽選を開始します", "lotteryId", event.LotteryID)
 
 	db, err := connectDB()
 	if err != nil {
@@ -57,13 +57,17 @@ func handler(ctx context.Context, event Event) error {
 		return err
 	}
 
-	log.Printf("抽選が完了しました: lotteryId=%s, 応募=%d名, 当選=%d名",
-		event.LotteryID, appliedCount, winnerCount)
+	slog.Info("抽選が完了しました",
+		"lotteryId", event.LotteryID,
+		"appliedCount", appliedCount,
+		"winnerCount", winnerCount)
 
 	// SNS への結果イベント発行（ARN 未設定ならスキップ）
 	if err := publishResult(ctx, event.LotteryID, appliedCount, winnerCount); err != nil {
 		// 開票自体は完了しているため、SNS 失敗でエラーにはしない（ログのみ）
-		log.Printf("SNS発行に失敗しました（開票結果はDBに反映済み）: %v", err)
+		slog.Warn("SNS発行に失敗しました（開票結果はDBに反映済み）",
+			"lotteryId", event.LotteryID,
+			"error", err)
 	}
 	return nil
 }
@@ -94,7 +98,7 @@ func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
 
 	if len(applicantIDs) == 0 {
 		// 応募なし、または既に開票済み（WAITING が残っていない）。冪等として正常終了する
-		log.Printf("対象の WAITING 応募がありません（応募なし or 開票済み）: lotteryId=%s", lotteryID)
+		slog.Info("対象の WAITING 応募がありません（応募なし or 開票済み）", "lotteryId", lotteryID)
 		return 0, 0, nil
 	}
 
@@ -186,5 +190,11 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	// 構造化ログ（JSON）を CloudWatch Logs へ出力する。
+	// これにより CloudWatch Logs Insights で lotteryId 等のフィールドで検索・集計できる
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	lambda.Start(handler)
 }

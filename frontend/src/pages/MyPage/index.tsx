@@ -35,12 +35,22 @@ export default function MyPage() {
   }, [fetchApplications, fetchOrders, isLoggedIn, location, navigate])
 
   // 統計サマリーの計算
+  // 表示中のタブに対応するデータのみを集計する（購入と抽選で混ざらないようにする）
   const stats = useMemo(() => {
-    const unpaidCount = orders.filter((o) => o.status === 'UNPAID').length
-    const paidCount = orders.filter((o) => o.status === 'PAID').length
-    const wonCount = applications.filter((a) => a.status === 'UNPAID').length
-    return { unpaidCount, paidCount, wonCount }
-  }, [orders, applications])
+    if (tab === 'orders') {
+      const total = orders.length
+      const unpaid = orders.filter((o) => o.status === 'UNPAID').length
+      const paid = orders.filter((o) => o.status === 'PAID').length
+      const cancelled = orders.filter((o) => o.status === 'CANCELLED').length
+      return { total, unpaid, paid, cancelled }
+    }
+    // 抽選: 当選(未払い+支払済) / 抽選待ち / 落選
+    const total = applications.length
+    const won = applications.filter((a) => a.status === 'UNPAID' || a.status === 'PAID').length
+    const waiting = applications.filter((a) => a.status === 'WAITING').length
+    const lost = applications.filter((a) => a.status === 'LOST').length
+    return { total, unpaid: won, paid: waiting, cancelled: lost }
+  }, [orders, applications, tab])
 
   // 注文ステータスで絞り込んだリスト
   const filteredOrders = useMemo(() => {
@@ -63,26 +73,32 @@ export default function MyPage() {
         </div>
       </div>
 
-      {/* 統計サマリーカード */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
-        <div className="bg-ink-soft border border-white/[0.08] p-3.5 rounded-[4px]">
-          <div className="font-mono text-[10px] text-muted tracking-[1px] mb-1">購入合計</div>
-          <div className="font-oswald font-bold text-[22px] text-paper">
-            {orders.length} <span className="text-[11px] font-normal text-muted">件</span>
+      {/* 統計サマリーカード（表示中のタブに対応する内訳のみ表示する） */}
+      <div className="grid grid-cols-4 gap-3 mb-8 max-sm:grid-cols-2">
+        {(
+          tab === 'orders' ?
+            [
+              { label: '購入合計', value: stats.total, tone: 'paper' },
+              { label: '未払い', value: stats.unpaid, tone: 'warning' },
+              { label: '支払済', value: stats.paid, tone: 'success' },
+              { label: 'キャンセル', value: stats.cancelled, tone: 'muted' },
+            ]
+          : [
+              { label: '応募合計', value: stats.total, tone: 'paper' },
+              { label: '当選', value: stats.unpaid, tone: 'lottery' },
+              { label: '抽選待ち', value: stats.paid, tone: 'warning' },
+              { label: '落選', value: stats.cancelled, tone: 'muted' },
+            ]
+        ).map((c) => (
+          <div key={c.label} className="bg-ink-soft border border-white/[0.08] p-3.5 rounded-[4px]">
+            <div className={`font-mono text-[10px] tracking-[1px] mb-1 ${CARD_TONE[c.tone].label}`}>
+              {c.label}
+            </div>
+            <div className={`font-oswald font-bold text-[22px] ${CARD_TONE[c.tone].value}`}>
+              {c.value} <span className="text-[11px] font-normal text-muted">件</span>
+            </div>
           </div>
-        </div>
-        <div className="bg-ink-soft border border-warning/20 p-3.5 rounded-[4px]">
-          <div className="font-mono text-[10px] text-warning tracking-[1px] mb-1">未払い</div>
-          <div className="font-oswald font-bold text-[22px] text-warning">
-            {stats.unpaidCount} <span className="text-[11px] font-normal text-muted">件</span>
-          </div>
-        </div>
-        <div className="bg-ink-soft border border-lottery/20 p-3.5 rounded-[4px]">
-          <div className="font-mono text-[10px] text-lottery tracking-[1px] mb-1">抽選当選</div>
-          <div className="font-oswald font-bold text-[22px] text-lottery">
-            {stats.wonCount} <span className="text-[11px] font-normal text-muted">件</span>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* タブ切り替え（購入履歴 / 抽選応募） */}
@@ -222,6 +238,15 @@ export default function MyPage() {
       )}
     </div>
   )
+}
+
+// 統計カードの色トーン（ラベル色 / 数値色）
+const CARD_TONE: Record<string, { label: string; value: string }> = {
+  paper: { label: 'text-muted', value: 'text-paper' },
+  warning: { label: 'text-warning', value: 'text-warning' },
+  success: { label: 'text-success', value: 'text-success' },
+  lottery: { label: 'text-lottery', value: 'text-lottery' },
+  muted: { label: 'text-muted', value: 'text-muted' },
 }
 
 // 注文ステータスバッジ

@@ -92,40 +92,6 @@ resource "aws_iam_role_policy" "lottery_drawer_sns" {
   })
 }
 
-# Secrets Manager からのDBパスワード取得
-resource "aws_iam_role_policy" "lottery_drawer_secrets" {
-  name = "${var.project_name}-lottery-drawer-secrets-${var.environment}"
-  role = aws_iam_role.lottery_drawer.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.db_password.arn
-      }
-    ]
-  })
-}
-
-# ==============================================================================
-# RDS パスワードの Secrets Manager 保管
-# 環境変数には ARN のみを渡し、実行時に GetSecretValue で取得する（平文を露出させない）
-# ==============================================================================
-resource "aws_secretsmanager_secret" "db_password" {
-  name = "${var.project_name}-db-password-${var.environment}"
-
-  tags = {
-    Name = "${var.project_name}-db-password-${var.environment}"
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "db_password" {
-  secret_id     = aws_secretsmanager_secret.db_password.id
-  secret_string = var.db_password
-}
-
 # ==============================================================================
 # Lambda 用セキュリティグループ（RDSへのアウトバウンドのみ）
 # ==============================================================================

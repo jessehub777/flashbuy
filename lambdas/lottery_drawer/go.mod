@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/aws/aws-lambda-go v1.54.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.40
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.45.0
 	github.com/aws/aws-sdk-go-v2/service/sns v1.43.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.12.3

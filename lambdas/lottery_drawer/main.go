@@ -9,9 +9,11 @@
 //
 // 環境変数:
 //
-//	DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_SSLMODE
-//	DB_SECRET_ARN（Secrets Manager からパスワード取得。未設定なら DB_PASSWORD にフォールバック）
+//	DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD / DB_SSLMODE
 //	SNS_TOPIC_ARN（空なら SNS 発行をスキップ）
+//
+// パスワードは環境変数から直接取得する（VPC内のLambdaからはSecrets Managerへ到達できないため）。
+// 本番移行時（ECS / NAT + VPC Endpoint 導入時）は Secrets Manager 方式に戻す。
 package main
 
 import (
@@ -131,28 +133,18 @@ func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
 	return len(winnerIDs), len(applicantIDs), nil
 }
 
-// connectDB は RDS への接続を作る。
-// パスワードは Secrets Manager（DB_SECRET_ARN）から取得する。
-// DB_SECRET_ARN 未設定の場合は DB_PASSWORD 環境変数にフォールバックする（ローカル実行用）。
+// connectDB は環境変数から RDS への接続を作る。
+// パスワードは DB_PASSWORD 環境変数から直接取得する。
 func connectDB() (*sqlx.DB, error) {
 	host := envOr("DB_HOST", "")
 	port := envOr("DB_PORT", "5432")
 	name := envOr("DB_NAME", "flashbuy")
 	user := envOr("DB_USER", "flashbuy")
+	password := os.Getenv("DB_PASSWORD")
 	sslmode := envOr("DB_SSLMODE", "require")
 
-	// パスワード取得: Secrets Manager 優先、なければ環境変数
-	password := os.Getenv("DB_PASSWORD")
-	if secretARN := os.Getenv("DB_SECRET_ARN"); secretARN != "" {
-		v, err := getSecretValue(context.TODO(), secretARN)
-		if err != nil {
-			return nil, fmt.Errorf("Secrets Managerからのパスワード取得に失敗しました: %w", err)
-		}
-		password = v
-	}
-
 	if host == "" || password == "" {
-		return nil, fmt.Errorf("DB_HOST が未設定、または DB_SECRET_ARN / DB_PASSWORD が取得できません")
+		return nil, fmt.Errorf("DB_HOST / DB_PASSWORD 環境変数が設定されていません")
 	}
 
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",

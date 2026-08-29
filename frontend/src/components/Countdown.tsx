@@ -1,4 +1,5 @@
 // Countdown — flip-style countdown display matching design mockup board
+import { useEffect, useRef } from 'react';
 import { useCountdown } from '../hooks/useCountdown';
 
 interface CountdownProps {
@@ -6,6 +7,8 @@ interface CountdownProps {
   label?: string;
   showDays?: boolean;
   expiredText?: string;
+  // 期限切れになった瞬間に1回だけ呼ばれる（親で状態を再取得させるために使う）
+  onExpired?: () => void;
 }
 
 function FlipBlock({
@@ -48,8 +51,25 @@ export default function Countdown({
   label = 'LIVE — 次回販売まで',
   showDays = true,
   expiredText = '受付終了',
+  onExpired,
 }: CountdownProps) {
   const { days, hours, minutes, seconds, isExpired } = useCountdown(targetDate);
+  const expiredNotified = useRef(false);
+
+  // 対象時刻が変わったら通知済みフラグをリセットする。
+  // 状態が変わると targetDate が差し替わる（例: 締切 → 抽選日）ため、
+  // 同じコンポーネントで次の期限切れも通知できるようにする。
+  useEffect(() => {
+    expiredNotified.current = false;
+  }, [targetDate]);
+
+  // 期限切れになったら1回だけ通知する（初回表示時点で既に切れている場合も含む）
+  useEffect(() => {
+    if (isExpired && !expiredNotified.current) {
+      expiredNotified.current = true;
+      onExpired?.();
+    }
+  }, [isExpired, onExpired]);
 
   if (isExpired) {
     return (

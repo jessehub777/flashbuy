@@ -373,8 +373,8 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
             </div>
           )}
 
-          {/* 期間 */}
-          <div className={`grid ${flashMode ? 'grid-cols-2' : 'grid-cols-3'} gap-3`}>
+          {/* 期間（datetime-local は幅が必要なため、抽選は縦積みにして各入力欄を全幅表示する） */}
+          <div className={`grid ${flashMode ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
             <div>
               <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
                 {flashMode ? '開始日時' : '応募開始'}

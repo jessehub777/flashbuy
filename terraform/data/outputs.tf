@@ -2,6 +2,11 @@ output "vpc_id" {
   value = aws_vpc.main.id
 }
 
+output "private_subnet_ids" {
+  description = "プライベートサブネットのID一覧（Lambda/ECSのVPC配置用）"
+  value       = aws_subnet.private[*].id
+}
+
 output "db_name" {
   description = "RDSのデータベース名"
   value       = aws_db_instance.postgres.db_name

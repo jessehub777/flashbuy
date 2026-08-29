@@ -10,11 +10,22 @@ import (
 
 // Config はアプリケーションの全ての設定を保持する構造体です。
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	AWS      AWSConfig      `mapstructure:"aws"`
-	Cognito  CognitoConfig  `mapstructure:"cognito"`
+	App       AppConfig       `mapstructure:"app"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Redis     RedisConfig     `mapstructure:"redis"`
+	AWS       AWSConfig       `mapstructure:"aws"`
+	Cognito   CognitoConfig   `mapstructure:"cognito"`
+	Scheduler SchedulerConfig `mapstructure:"scheduler"`
+}
+
+// SchedulerConfig は EventBridge Scheduler（抽選開票のワンタイム登録）の設定です。
+// terraform/lambda の output 値を config ファイルに転記する。
+// 未設定の場合は開票スケジュールの登録をスキップする。
+type SchedulerConfig struct {
+	Region            string `mapstructure:"region"`
+	ScheduleGroupName string `mapstructure:"schedule_group_name"` // terraform output lottery_schedule_group_name
+	DrawerFunctionARN string `mapstructure:"drawer_function_arn"` // terraform output lottery_drawer_function_arn
+	ExecutionRoleARN  string `mapstructure:"execution_role_arn"`  // terraform output scheduler_execution_role_arn
 }
 
 type CognitoConfig struct {

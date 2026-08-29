@@ -92,40 +92,6 @@ resource "aws_iam_role_policy" "lottery_drawer_sns" {
   })
 }
 
-# Secrets Manager からのDBパスワード取得
-resource "aws_iam_role_policy" "lottery_drawer_secrets" {
-  name = "${var.project_name}-lottery-drawer-secrets-${var.environment}"
-  role = aws_iam_role.lottery_drawer.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.db_password.arn
-      }
-    ]
-  })
-}
-
-# ==============================================================================
-# RDS パスワードの Secrets Manager 保管
-# 環境変数には ARN のみを渡し、実行時に GetSecretValue で取得する（平文を露出させない）
-# ==============================================================================
-resource "aws_secretsmanager_secret" "db_password" {
-  name = "${var.project_name}-db-password-${var.environment}"
-
-  tags = {
-    Name = "${var.project_name}-db-password-${var.environment}"
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "db_password" {
-  secret_id     = aws_secretsmanager_secret.db_password.id
-  secret_string = var.db_password
-}
-
 # ==============================================================================
 # Lambda 用セキュリティグループ（RDSへのアウトバウンドのみ）
 # ==============================================================================
@@ -170,12 +136,14 @@ resource "aws_lambda_function" "lottery_drawer" {
 
   environment {
     variables = {
-      DB_HOST       = data.terraform_remote_state.data.outputs.rds_host
-      DB_PORT       = tostring(data.terraform_remote_state.data.outputs.rds_port)
-      DB_NAME       = data.terraform_remote_state.data.outputs.db_name
-      DB_USER       = data.terraform_remote_state.data.outputs.db_username
-      DB_SECRET_ARN = aws_secretsmanager_secret.db_password.arn
-      DB_SSLMODE    = "require"
+      DB_HOST     = data.terraform_remote_state.data.outputs.rds_host
+      DB_PORT     = tostring(data.terraform_remote_state.data.outputs.rds_port)
+      DB_NAME     = data.terraform_remote_state.data.outputs.db_name
+      DB_USER     = data.terraform_remote_state.data.outputs.db_username
+      # PoC: パスワードは環境変数で直接渡す（VPC内LambdaからはSecrets Managerへ到達できないため。
+      # 本番移行時はNAT/VPC Endpointを用意し、DB_SECRET_ARN + Secrets Manager方式に戻す）
+      DB_PASSWORD = var.db_password
+      DB_SSLMODE  = "require"
       SNS_TOPIC_ARN = aws_sns_topic.lottery_drawn.arn
     }
   }

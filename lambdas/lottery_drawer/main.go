@@ -151,9 +151,21 @@ func connectDB() (*sqlx.DB, error) {
 		return nil, fmt.Errorf("DB_HOST / DB_PASSWORD 環境変数が設定されていません")
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+	// connect_timeout: RDS が応答しない場合にTCP接続の確立で無限に待たされるのを防ぐ。
+	// （Lambda のタイムアウト60秒で強制終了されると、Schedule は実行済みとして削除されるため
+	//   その抽選の開票機会が失われる。早めに失敗させて再試行に回す方が安全）
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=5",
 		host, port, user, password, name, sslmode)
-	return sqlx.Connect("postgres", dsn)
+
+	db, err := sqlx.Connect("postgres", dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Lambda は 1 invocation = 1並行で、開票処理は1トランザクションの直列実行のため接続は1本で十分。
+	// プールは各 invocation で作り直される（handler の defer db.Close()）ため、それ以上の設定は不要
+	db.SetMaxOpenConns(1)
+	return db, nil
 }
 
 // publishResult は SNS トピック lottery.drawn に開票結果イベントを発行する

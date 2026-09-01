@@ -12,8 +12,7 @@ type Specification struct {
 }
 
 // ItemDetail は商品の詳細情報です。
-// 現在はDBの detail_json カラムにJSONとして保存する。
-// 将来はS3にJSONファイルとして保存し、detail_s3_key で参照する予定
+// DBの detail_json カラムにJSONとして保存する。
 type ItemDetail struct {
 	Specifications []Specification `json:"specifications,omitempty"`
 	Rules          []string        `json:"rules,omitempty"`

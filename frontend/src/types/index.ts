@@ -108,9 +108,8 @@ export interface AdminFlashPayload {
   description?: string
   startsAt?: string
   endsAt?: string
-  imageS3Key?: string // 画像のS3キー（presign API導入時に使用予定）
-  detailS3Key?: string // 詳細JSONのS3キー（presign API導入時に使用予定）
-  // 商品仕様・注意事項（将来S3に保存予定）
+  imageS3Key?: string // 画像のS3キー
+  // 商品仕様・注意事項
   specifications?: { label: string; value: string }[]
   rules?: string[]
 }
@@ -125,9 +124,8 @@ export interface AdminLotteryPayload {
   startsAt?: string
   applyDeadline?: string
   drawAt?: string
-  imageS3Key?: string // 画像のS3キー（presign API導入時に使用予定）
-  detailS3Key?: string // 詳細JSONのS3キー（presign API導入時に使用予定）
-  // 商品仕様・注意事項（将来S3に保存予定）
+  imageS3Key?: string // 画像のS3キー
+  // 商品仕様・注意事項
   specifications?: { label: string; value: string }[]
   rules?: string[]
 }

@@ -34,7 +34,6 @@ type createFlashRequest struct {
 	StartsAt       *time.Time             `json:"startsAt"`
 	EndsAt         *time.Time             `json:"endsAt"`
 	ImageS3Key     string                 `json:"imageS3Key"`
-	DetailS3Key    string                 `json:"detailS3Key"`
 	Specifications []models.Specification `json:"specifications"`
 	Rules          []string               `json:"rules"`
 }
@@ -75,23 +74,20 @@ func (h *AdminController) CreateFlash(c *gin.Context) {
 		item.EndsAt = *req.EndsAt
 	}
 
-	// ImageS3Key / DetailS3Key は空文字の場合はNULLにする（ポインタ経由）
+	// ImageS3Key は空文字の場合はNULLにする（ポインタ経由）
 	if req.ImageS3Key != "" {
 		item.ImageS3Key = &req.ImageS3Key
 	}
-	if req.DetailS3Key != "" {
-		item.DetailS3Key = &req.DetailS3Key
-	}
 
-	// 商品仕様・注意事項をJSONにして保存する（将来S3に移行予定）
+	// 商品仕様・注意事項をJSONにして保存する
 	item.DetailJSON = marshalItemDetail(req.Specifications, req.Rules)
 
 	err := database.DB.Get(&item, `
-		INSERT INTO flash_items (name, description, price, stock, total_stock, starts_at, ends_at, category, image_s3_key, detail_s3_key, detail_json)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO flash_items (name, description, price, stock, total_stock, starts_at, ends_at, category, image_s3_key, detail_json)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, view_count, created_at`,
 		item.Name, item.Description, item.Price, item.Stock, item.TotalStock,
-		item.StartsAt, item.EndsAt, item.Category, item.ImageS3Key, item.DetailS3Key, item.DetailJSON,
+		item.StartsAt, item.EndsAt, item.Category, item.ImageS3Key, item.DetailJSON,
 	)
 	if err != nil {
 		logger.Error("フラッシュセールの作成に失敗しました", zap.Error(err))
@@ -123,7 +119,6 @@ type createLotteryRequest struct {
 	ApplyDeadline  *time.Time             `json:"applyDeadline"`                        // 応募締切
 	DrawAt         *time.Time             `json:"drawAt"`                               // 抽選日
 	ImageS3Key     string                 `json:"imageS3Key"`                           // 商品画像のS3キー
-	DetailS3Key    string                 `json:"detailS3Key"`                          // 詳細データのS3キー
 	Specifications []models.Specification `json:"specifications"`
 	Rules          []string               `json:"rules"`
 }
@@ -178,24 +173,21 @@ func (h *AdminController) CreateLottery(c *gin.Context) {
 		item.DrawAt = *req.DrawAt
 	}
 
-	// ImageS3Key / DetailS3Key は空文字の場合はNULLにする（ポインタ経由）
+	// ImageS3Key は空文字の場合はNULLにする（ポインタ経由）
 	if req.ImageS3Key != "" {
 		item.ImageS3Key = &req.ImageS3Key
 	}
-	if req.DetailS3Key != "" {
-		item.DetailS3Key = &req.DetailS3Key
-	}
 
-	// 商品仕様・注意事項をJSONにして保存する（将来S3に移行予定）
+	// 商品仕様・注意事項をJSONにして保存する
 	item.DetailJSON = marshalItemDetail(req.Specifications, req.Rules)
 
 	err := database.DB.Get(&item, `
-		INSERT INTO lottery_items (name, description, price, chosen_price, winner_count, starts_at, apply_deadline, draw_at, category, image_s3_key, detail_s3_key, detail_json)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO lottery_items (name, description, price, chosen_price, winner_count, starts_at, apply_deadline, draw_at, category, image_s3_key, detail_json)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, apply_count, view_count, created_at`,
 		item.Name, item.Description, item.Price, item.ChosenPrice, item.WinnerCount,
 		item.StartsAt, item.ApplyDeadline, item.DrawAt, item.Category,
-		item.ImageS3Key, item.DetailS3Key, item.DetailJSON,
+		item.ImageS3Key, item.DetailJSON,
 	)
 	if err != nil {
 		logger.Error("抽選の作成に失敗しました", zap.Error(err))

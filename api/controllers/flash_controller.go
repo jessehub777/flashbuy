@@ -49,7 +49,6 @@ type FlashItemCache struct {
 	Name           string                 `json:"name"`
 	Description    string                 `json:"description"`
 	ImageS3Key     *string                `json:"imageS3Key,omitempty"`
-	DetailS3Key    *string                `json:"detailS3Key,omitempty"`
 	Price          int                    `json:"price"`
 	TotalStock     int                    `json:"totalStock"`
 	StartsAt       time.Time              `json:"startsAt"`
@@ -94,7 +93,6 @@ func (h *FlashController) GetFlashById(c *gin.Context) {
 			Name:           item.Name,
 			Description:    item.Description,
 			ImageS3Key:     item.ImageS3Key,
-			DetailS3Key:    item.DetailS3Key,
 			Price:          item.Price,
 			TotalStock:     item.TotalStock,
 			StartsAt:       item.StartsAt,

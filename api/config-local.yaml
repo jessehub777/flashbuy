@@ -20,7 +20,9 @@ aws:
   region: ap-northeast-1
   access_key_id: ""
   secret_access_key: ""
-  s3_bucket_name: ""
+  # 商品画像バケット名（terraform/storage の output images_bucket_name）。
+  # 空の場合は画像アップロードが無効になる（Presign がエラーを返す）
+  s3_bucket_name: "flashbuy-images-dev"
 
 cognito:
   region: ap-northeast-1

@@ -100,15 +100,15 @@ export const api = {
     return requestPost('/api/v1/lottery/apply', { lotteryId })
   },
 
-  // マイページ — 注文・応募履歴を取得する
+  // マイページ — 注文・応募履歴を取得する（imageS3Key を表示用 imageUrl に変換する）
   async getMyFlashOrderList(): Promise<FlashOrderItem[]> {
-    const res = await request<{ flashOrderList: FlashOrderItem[] }>('/api/v1/my/flashOrderList')
-    return res.flashOrderList
+    const res = await request<{ flashOrderList: any[] }>('/api/v1/my/flashOrderList')
+    return res.flashOrderList.map((o) => toImageUrl(o) as FlashOrderItem)
   },
 
   async getMyLotteryApplicationList(): Promise<LotteryOrderItem[]> {
-    const res = await request<{ lotteryOrderList: LotteryOrderItem[] }>('/api/v1/my/lotteryOrderList')
-    return res.lotteryOrderList
+    const res = await request<{ lotteryOrderList: any[] }>('/api/v1/my/lotteryOrderList')
+    return res.lotteryOrderList.map((o) => toImageUrl(o) as LotteryOrderItem)
   },
 
   // 支払いMock — バックエンドが 60%成功 / 40%失敗 を返す

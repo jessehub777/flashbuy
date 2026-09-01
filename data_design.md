@@ -26,8 +26,8 @@ export interface FlashItem {
   endsAt: string // ISO datetime
   category: string // "ライブ・コンサート", "限定スニーカー" など
   viewCount: number // 閲覧数（人気度指標）
-  specifications?: { label: string; value: string }[] // S3静的詳細スペック (全商品共通)
-  rules?: string[] // S3静的注意事項・購入規約リスト (全商品共通)
+  specifications?: { label: string; value: string }[] // 詳細スペック (全商品共通)
+  rules?: string[] // 注意事項・購入規約リスト (全商品共通)
 }
 ```
 
@@ -53,8 +53,8 @@ export interface LotteryItem {
   drawAt: string // ISO datetime — 抽選実施日時
   category: string
   viewCount: number // 閲覧数（人気度指標）
-  specifications?: { label: string; value: string }[] // S3静的詳細スペック (全商品共通)
-  rules?: string[] // S3静的注意事項・応募規約リスト (全商品共通)
+  specifications?: { label: string; value: string }[] // 詳細スペック (全商品共通)
+  rules?: string[] // 注意事項・応募規約リスト (全商品共通)
 }
 ```
 
@@ -149,7 +149,7 @@ CREATE TABLE flash_items (
   name            VARCHAR(255) NOT NULL,
   description     TEXT NOT NULL,
   image_s3_key    VARCHAR(512),
-  detail_s3_key   VARCHAR(512),                   -- S3 JSON詳細ファイルのキー
+  detail_json     TEXT,                           -- 商品仕様・注意事項（JSON）
   price           INTEGER NOT NULL CHECK (price >= 0),
   stock           INTEGER NOT NULL DEFAULT 0,
   total_stock     INTEGER NOT NULL,
@@ -177,7 +177,7 @@ CREATE TABLE lottery_items (
   name             VARCHAR(255) NOT NULL,
   description      TEXT NOT NULL,
   image_s3_key     VARCHAR(512),
-  detail_s3_key    VARCHAR(512),                  -- S3 JSON詳細ファイルのキー
+  detail_json      TEXT,                          -- 商品仕様・注意事項（JSON）
   price            INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
   chosen_price    INTEGER NOT NULL DEFAULT 0 CHECK (chosen_price >= 0),
   winner_count     INTEGER NOT NULL CHECK (winner_count > 0),

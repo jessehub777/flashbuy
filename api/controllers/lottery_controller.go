@@ -49,7 +49,6 @@ type LotteryItemCache struct {
 	Name           string                 `json:"name"`
 	Description    string                 `json:"description"`
 	ImageS3Key     *string                `json:"imageS3Key,omitempty"`
-	DetailS3Key    *string                `json:"detailS3Key,omitempty"`
 	Price          int                    `json:"price"`
 	ChosenPrice    int                    `json:"chosenPrice"`
 	WinnerCount    int                    `json:"winnerCount"`
@@ -96,7 +95,6 @@ func (h *LotteryController) GetLotteryById(c *gin.Context) {
 			Name:           item.Name,
 			Description:    item.Description,
 			ImageS3Key:     item.ImageS3Key,
-			DetailS3Key:    item.DetailS3Key,
 			Price:          item.Price,
 			ChosenPrice:    item.ChosenPrice,
 			WinnerCount:    item.WinnerCount,

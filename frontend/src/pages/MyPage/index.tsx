@@ -147,14 +147,17 @@ export default function MyPage() {
                 <div
                   key={order.id}
                   className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-5 flex items-center justify-between gap-4 hover:border-white/20 transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-paper truncate text-[15px]">{order.saleName}</div>
-                    <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
-                      注文日時: {dayjs(order.createdAt).format('YYYY/MM/DD HH:mm')}
+                  <div className="flex-1 min-w-0 flex items-center gap-3">
+                    <Thumb url={order.imageUrl} name={order.saleName} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-paper truncate text-[15px]">{order.saleName}</div>
+                      <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
+                        注文日時: {dayjs(order.createdAt).format('YYYY/MM/DD HH:mm')}
+                      </div>
+                      {order.status === 'UNPAID' && order.expiresAt && (
+                        <PaymentDeadline deadline={order.expiresAt} onExpired={fetchOrders} />
+                      )}
                     </div>
-                    {order.status === 'UNPAID' && order.expiresAt && (
-                      <PaymentDeadline deadline={order.expiresAt} onExpired={fetchOrders} />
-                    )}
                   </div>
                   <div className="text-right flex-none">
                     <div className="font-oswald font-bold text-[20px] text-paper mb-1">
@@ -187,14 +190,17 @@ export default function MyPage() {
               <div
                 key={app.id}
                 className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-5 flex items-center justify-between gap-4 hover:border-white/20 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-paper truncate text-[15px]">{app.lotteryName}</div>
-                  <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
-                    応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
+                <div className="flex-1 min-w-0 flex items-center gap-3">
+                  <Thumb url={app.imageUrl} name={app.lotteryName} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-paper truncate text-[15px]">{app.lotteryName}</div>
+                    <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
+                      応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
+                    </div>
+                    {app.status === 'UNPAID' && app.payDeadline && (
+                      <PaymentDeadline deadline={app.payDeadline} onExpired={fetchApplications} />
+                    )}
                   </div>
-                  {app.status === 'UNPAID' && app.payDeadline && (
-                    <PaymentDeadline deadline={app.payDeadline} onExpired={fetchApplications} />
-                  )}
                 </div>
                 <div className="text-right flex-none">
                   {(app.status === 'UNPAID' || app.status === 'PAID') && (
@@ -236,6 +242,24 @@ export default function MyPage() {
           }}
         />
       )}
+    </div>
+  )
+}
+
+// 商品の縮小サムネイル（画像が無い場合は商品名の先頭文字を表示）
+function Thumb({ url, name }: { url?: string; name: string }) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name}
+        className="w-12 h-12 rounded-[3px] object-cover flex-none border border-white/[0.1]"
+      />
+    )
+  }
+  return (
+    <div className="w-12 h-12 rounded-[3px] flex-none border border-white/[0.1] bg-white/[0.04] flex items-center justify-center font-oswald font-bold text-paper/25 text-[16px]">
+      {name.slice(0, 1)}
     </div>
   )
 }

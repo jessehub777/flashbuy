@@ -92,6 +92,13 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 			adminGroup.POST("/lottery", adminController.CreateLottery)
 		}
 
+		// 画像アップロード（認証 + 管理者ロール必須）
+		uploadController := controllers.NewUploadController()
+		uploadGroup := v1.Group("/upload", middleware.AuthRequired(), middleware.RequireRole("admin"))
+		{
+			uploadGroup.GET("/presign", uploadController.Presign)
+		}
+
 		// マイページルート（認証必須）
 		myController := controllers.NewMyController()
 		myGroup := v1.Group("/my", middleware.AuthRequired())

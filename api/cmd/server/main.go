@@ -13,6 +13,7 @@ import (
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
+	"flashbuy/api/pkg/s3"
 	"flashbuy/api/pkg/scheduler"
 	"flashbuy/api/pkg/task"
 	"flashbuy/api/router"
@@ -64,6 +65,10 @@ func main() {
 	// 7. EventBridge Scheduler クライアントの初期化（抽選開票のワンタイム登録用。
 	//     設定が空の場合はスキップされ、開票スケジュールの登録は行われない）
 	scheduler.InitScheduler(&cfg.Scheduler)
+
+	// 8. S3クライアントの初期化（画像アップロードの署名付きURL発行用。
+	//     バケット名が未設定の場合はスキップされ、アップロードはエラーになる）
+	s3.InitS3(&cfg.AWS)
 
 	// 8. 注文の期限切れ監視タスクを起動（30秒間隔で未払い・期限切れ注文をキャンセル）
 	go task.StartOrderExpirer(30 * time.Second)

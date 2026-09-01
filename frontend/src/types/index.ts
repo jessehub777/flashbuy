@@ -52,6 +52,8 @@ export interface FlashOrderItem {
   id: string
   saleId: string
   saleName: string
+  imageS3Key?: string // 商品画像のS3キー
+  imageUrl?: string // 商品画像の表示用URL（toImageUrl で生成）
   price: number
   status: FlashOrderStatus
   createdAt: string
@@ -63,6 +65,8 @@ export interface LotteryOrderItem {
   id: string
   lotteryId: string
   lotteryName: string
+  imageS3Key?: string // 商品画像のS3キー
+  imageUrl?: string // 商品画像の表示用URL（toImageUrl で生成）
   appliedAt: string
   status: LotteryOrderStatus
   payDeadline?: string

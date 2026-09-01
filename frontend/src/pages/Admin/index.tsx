@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../../stores/authStore'
 import { api } from '../../services/api'
+import { uploadImage } from '../../services/request'
 import dayjs from 'dayjs'
 
 export default function Admin() {
@@ -214,9 +215,19 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
   const [description, setDescription] = useState('')
   const [specText, setSpecText] = useState('')
   const [rulesText, setRulesText] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+
+  // 画像を選択したらプレビューを表示する（アップロードは作成時に行う）
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
 
   const handleSave = async () => {
     if (!name.trim()) return
@@ -235,6 +246,13 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
     const rules = rulesText.split('\n').map((l) => l.trim()).filter(Boolean)
 
     try {
+      // 画像が選択されていれば先にS3へアップロードし、そのkeyを商品に紐付ける
+      let imageS3Key: string | undefined
+      if (imageFile) {
+        const uploaded = await uploadImage(imageFile, type === 'flash' ? 'products' : 'lottery')
+        imageS3Key = uploaded.key
+      }
+
       if (type === 'flash') {
         await api.createFlash({
           name,
@@ -244,6 +262,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
           description,
           startsAt: startsAt ? new Date(startsAt).toISOString() : undefined,
           endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
+          imageS3Key,
           specifications: specifications.length > 0 ? specifications : undefined,
           rules: rules.length > 0 ? rules : undefined,
         })
@@ -258,6 +277,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
           startsAt: startsAt ? new Date(startsAt).toISOString() : undefined,
           applyDeadline: applyDeadline ? new Date(applyDeadline).toISOString() : undefined,
           drawAt: drawAt ? new Date(drawAt).toISOString() : undefined,
+          imageS3Key,
           specifications: specifications.length > 0 ? specifications : undefined,
           rules: rules.length > 0 ? rules : undefined,
         })
@@ -298,6 +318,28 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
               onChange={(e) => setName(e.target.value)}
               placeholder={flashMode ? '例: 限定クリアファイル' : '例: 限定サイン入りポスター'}
             />
+          </div>
+
+          {/* 商品画像（S3へ直接アップロード。作成時にkeyを商品へ紐付ける） */}
+          <div>
+            <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
+              商品画像（JPEG / PNG / WebP）
+            </label>
+            <div className="flex items-center gap-3">
+              {imagePreview && (
+                <img
+                  src={imagePreview}
+                  alt="プレビュー"
+                  className="w-14 h-14 object-cover rounded-[3px] border border-white/[0.12] flex-none"
+                />
+              )}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleImageSelect}
+                className="font-mono text-[11px] text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-[2px] file:border-0 file:bg-white/10 file:text-paper file:font-mono file:text-[11px] hover:file:bg-white/20"
+              />
+            </div>
           </div>
 
           {/* カテゴリ + 金額 */}

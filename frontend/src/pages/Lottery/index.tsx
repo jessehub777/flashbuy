@@ -126,10 +126,17 @@ export default function LotteryDetail() {
             <div className="absolute bottom-4 left-4 font-mono text-[11px] tracking-[0.5px] bg-black/60 text-white/90 px-2.5 py-1 rounded-[2px] backdrop-blur-sm z-10 flex items-center gap-1.5">
               <span>🔥</span> {item.viewCount.toLocaleString()} 回閲覧されています
             </div>
-            {/* プレースホルダー表示 */}
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="font-oswald font-bold text-[80px] text-lottery/20">{item.name.slice(0, 2)}</span>
-            </div>
+            {/* 商品画像（未登録の場合はプレースホルダーを表示） */}
+            {item.imageUrl ?
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                className="w-full h-full object-cover"
+              />
+            : <div className="w-full h-full flex items-center justify-center">
+                <span className="font-oswald font-bold text-[80px] text-lottery/20">{item.name.slice(0, 2)}</span>
+              </div>
+            }
           </div>
 
           {/* 当選確率・応募枠の数値カード */}

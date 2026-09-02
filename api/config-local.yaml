@@ -20,4 +20,19 @@ aws:
   region: ap-northeast-1
   access_key_id: ""
   secret_access_key: ""
-  s3_bucket_name: ""
+  # 商品画像バケット名（terraform/storage の output images_bucket_name）。
+  # 空の場合は画像アップロードが無効になる（Presign がエラーを返す）
+  s3_bucket_name: "flashbuy-images-dev"
+
+cognito:
+  region: ap-northeast-1
+  user_pool_id: "ap-northeast-1_sQqGey4kz"
+  app_client_id: "6kc985njnqt981ifa8qcfej2kd"
+
+# EventBridge Scheduler（抽選開票のワンタイム登録）
+# ローカルdocker環境では登録をスキップするため空のままにする
+scheduler:
+  region: ap-northeast-1
+  schedule_group_name: ""
+  drawer_function_arn: ""
+  execution_role_arn: ""

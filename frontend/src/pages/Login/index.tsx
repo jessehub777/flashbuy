@@ -30,7 +30,7 @@ export default function Login() {
   const handleDemoLogin = (role: 'user' | 'admin') => {
     const demoEmail = role === 'admin' ? 'admin@flashbuy.demo' : 'user@flashbuy.demo';
     setEmail(demoEmail);
-    setPassword('demo1234');
+    setPassword('Demo1234!');
   };
 
   return (
@@ -87,7 +87,7 @@ export default function Login() {
               id="password"
               type="password"
               className="input-dark"
-              placeholder="••••••••"
+              placeholder=""
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
@@ -107,12 +107,12 @@ export default function Login() {
           </button>
         </form>
 
-        {/* 注意書き */}
-        <div className="mt-6 p-4 bg-ink-soft border border-white/[0.08] rounded-[4px]">
-          <p className="font-mono text-[10px] text-muted tracking-[0.5px] leading-[1.8]">
-            [DEMO] このログインはMock実装です。<br />
-            Amazon Cognito JWT認証を想定しています。<br />
-            実際の認証処理は発生しません。
+        <div className="mt-6 text-center">
+          <p className="font-mono text-[12px] text-muted tracking-[0.5px]">
+            アカウントをお持ちでない方は
+            <Link to="/register" className="text-flash ml-1 hover:underline">
+              新規登録
+            </Link>
           </p>
         </div>
       </div>

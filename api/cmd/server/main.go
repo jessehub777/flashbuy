@@ -9,9 +9,13 @@ import (
 	"time"
 
 	"flashbuy/api/config"
+	"flashbuy/api/pkg/auth"
 	"flashbuy/api/pkg/cache"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
+	"flashbuy/api/pkg/s3"
+	"flashbuy/api/pkg/scheduler"
+	"flashbuy/api/pkg/task"
 	"flashbuy/api/router"
 
 	"go.uber.org/zap"
@@ -46,8 +50,31 @@ func main() {
 	}
 	defer cache.CloseRedis()
 
-	// 5. Gin HTTPサーバーの設定とルーティング
-	r := router.SetupRouter(cfg.App.Env)
+	// 5. Cognitoクライアントの初期化
+	cognitoClient, err := auth.NewCognitoClient(&cfg.Cognito)
+	if err != nil {
+		logger.Fatal("Cognitoクライアントの初期化に失敗しました", zap.Error(err))
+	}
+
+	// 6. JWKS（JWT検証用の公開鍵）の初期化
+	if err := auth.InitJWKS(cfg.Cognito.Region, cfg.Cognito.UserPoolID); err != nil {
+		logger.Fatal("JWKSの初期化に失敗しました", zap.Error(err))
+	}
+	defer auth.CloseJWKS()
+
+	// 7. EventBridge Scheduler クライアントの初期化（抽選開票のワンタイム登録用。
+	//     設定が空の場合はスキップされ、開票スケジュールの登録は行われない）
+	scheduler.InitScheduler(&cfg.Scheduler)
+
+	// 8. S3クライアントの初期化（画像アップロードの署名付きURL発行用。
+	//     バケット名が未設定の場合はスキップされ、アップロードはエラーになる）
+	s3.InitS3(&cfg.AWS)
+
+	// 8. 注文の期限切れ監視タスクを起動（30秒間隔で未払い・期限切れ注文をキャンセル）
+	go task.StartOrderExpirer(30 * time.Second)
+
+	// 9. Gin HTTPサーバーの設定とルーティング
+	r := router.SetupRouter(cfg.App.Env, cognitoClient)
 
 	// サーバーインスタンスの作成
 	srv := &http.Server{

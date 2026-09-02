@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import Countdown from '../../components/Countdown'
 import StockDots from '../../components/StockDots'
@@ -15,12 +15,12 @@ export default function FlashDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
-  const { flashBuy, buyStatus, resetBuyStatus } = useOrderStore()
+  const { flashBuy, buyStatus, resetBuyStatus, currentOrderId } = useOrderStore()
 
   const [showOrderModal, setShowOrderModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [payOrderNo, setPayOrderNo] = useState('')
 
   // IDでセール情報を取得する（同時に閲覧数が1増やされる）
   const { data: sale, isLoading } = useQuery({
@@ -39,10 +39,12 @@ export default function FlashDetail() {
     }
     setShowOrderModal(true)
     await flashBuy(id!)
+    // 在庫はサーバー側で減っているため、詳細データを再取得して表示を更新する
+    // （成功・売切・失敗のいずれの場合も最新の在庫を反映する）
+    queryClient.invalidateQueries({ queryKey: ['flash', id] })
   }
 
-  const handleProceedPayment = (orderNo: string) => {
-    setPayOrderNo(orderNo)
+  const handleProceedPayment = () => {
     setShowOrderModal(false)
     setShowPaymentModal(true)
   }
@@ -98,10 +100,17 @@ export default function FlashDetail() {
             <div className="absolute bottom-4 left-4 font-mono text-[11px] tracking-[0.5px] bg-black/60 text-white/90 px-2.5 py-1 rounded-[2px] backdrop-blur-sm z-10 flex items-center gap-1.5">
               <span>🔥</span> {sale.viewCount.toLocaleString()} 回閲覧されています
             </div>
-            {/* プレースホルダー表示 */}
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="font-oswald font-bold text-[80px] text-flash/20">{sale.name.slice(0, 2)}</span>
-            </div>
+            {/* 商品画像（未登録の場合はプレースホルダーを表示） */}
+            {sale.imageUrl ?
+              <img
+                src={sale.imageUrl}
+                alt={sale.name}
+                className="w-full h-full object-cover"
+              />
+            : <div className="w-full h-full flex items-center justify-center">
+                <span className="font-oswald font-bold text-[80px] text-flash/20">{sale.name.slice(0, 2)}</span>
+              </div>
+            }
           </div>
 
           {/* 在庫残量プログレスバー */}
@@ -226,8 +235,8 @@ export default function FlashDetail() {
 
       {showPaymentModal && (
         <PaymentMockModal
-          orderId={`ord-${Date.now()}`}
-          orderNo={payOrderNo}
+          orderId={currentOrderId ?? ''}
+          orderType="flash"
           amount={sale.price}
           onClose={() => setShowPaymentModal(false)}
           onSuccess={handlePaySuccess}

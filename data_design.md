@@ -14,7 +14,7 @@
 export type FlashStatus = 'UPCOMING' | 'ACTIVE' | 'SOLD_OUT' | 'ENDED'
 
 export interface FlashItem {
-  id: string // "fl-20260730-0042"
+  id: string
   name: string
   description: string
   imageUrl: string // S3 Object URL
@@ -24,10 +24,10 @@ export interface FlashItem {
   status: FlashStatus // 判定/動的計算
   startsAt: string // ISO datetime
   endsAt: string // ISO datetime
-  category: string // "ライブ・コンサート", "限定スニーカー" など
+  category: string // "ライブ・コンサート" など
   viewCount: number // 閲覧数（人気度指標）
-  specifications?: { label: string; value: string }[] // S3静的詳細スペック (全商品共通)
-  rules?: string[] // S3静的注意事項・購入規約リスト (全商品共通)
+  specifications?: { label: string; value: string }[] // 詳細スペック (全商品共通)
+  rules?: string[] // 注意事項・購入規約リスト (全商品共通)
 }
 ```
 
@@ -39,7 +39,7 @@ export interface FlashItem {
 export type LotteryStatus = 'UPCOMING' | 'ACTIVE' | 'DRAWING' | 'ENDED'
 
 export interface LotteryItem {
-  id: string // "lt-20260730-0041"
+  id: string
   name: string
   description: string
   imageUrl: string
@@ -53,8 +53,8 @@ export interface LotteryItem {
   drawAt: string // ISO datetime — 抽選実施日時
   category: string
   viewCount: number // 閲覧数（人気度指標）
-  specifications?: { label: string; value: string }[] // S3静的詳細スペック (全商品共通)
-  rules?: string[] // S3静的注意事項・応募規約リスト (全商品共通)
+  specifications?: { label: string; value: string }[] // 詳細スペック (全商品共通)
+  rules?: string[] // 注意事項・応募規約リスト (全商品共通)
 }
 ```
 
@@ -67,7 +67,6 @@ export type FlashOrderStatus = 'UNPAID' | 'PAID' | 'CANCELLED'
 
 export interface FlashOrderItem {
   id: string
-  orderNo: string // "FB-20260730-0042"
   saleId: string // FK → FlashItem.id
   saleName: string // 非正規化（表示用）
   price: number
@@ -132,19 +131,14 @@ export interface HomeTop10 {
 
 ```sql
 CREATE TABLE users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cognito_sub   VARCHAR(128) UNIQUE NOT NULL,  -- Cognito User Pool Subject
+  id            UUID PRIMARY KEY,            -- Cognito sub（認証基盤が発行した固定ID）
   email         VARCHAR(255) UNIQUE NOT NULL,
-  pwd           VARCHAR(255) NOT NULL,
   display_name  VARCHAR(100) NOT NULL,
   role          VARCHAR(20) NOT NULL DEFAULT 'user'
                 CHECK (role IN ('user', 'admin')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_cognito_sub ON users(cognito_sub);
 ```
 
 ### 2-2. `flash_items` テーブル
@@ -155,7 +149,7 @@ CREATE TABLE flash_items (
   name            VARCHAR(255) NOT NULL,
   description     TEXT NOT NULL,
   image_s3_key    VARCHAR(512),
-  detail_s3_key   VARCHAR(512),                   -- S3 JSON詳細ファイルのキー
+  detail_json     TEXT,                           -- 商品仕様・注意事項（JSON）
   price           INTEGER NOT NULL CHECK (price >= 0),
   stock           INTEGER NOT NULL DEFAULT 0,
   total_stock     INTEGER NOT NULL,
@@ -183,7 +177,7 @@ CREATE TABLE lottery_items (
   name             VARCHAR(255) NOT NULL,
   description      TEXT NOT NULL,
   image_s3_key     VARCHAR(512),
-  detail_s3_key    VARCHAR(512),                  -- S3 JSON詳細ファイルのキー
+  detail_json      TEXT,                          -- 商品仕様・注意事項（JSON）
   price            INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
   chosen_price    INTEGER NOT NULL DEFAULT 0 CHECK (chosen_price >= 0),
   winner_count     INTEGER NOT NULL CHECK (winner_count > 0),
@@ -208,7 +202,6 @@ CREATE INDEX idx_lottery_items_category     ON lottery_items(category);
 ```sql
 CREATE TABLE flash_orders (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_no     VARCHAR(30) UNIQUE NOT NULL,
   user_id      UUID NOT NULL REFERENCES users(id),
   flash_id      UUID NOT NULL REFERENCES flash_items(id),
   price        INTEGER NOT NULL,

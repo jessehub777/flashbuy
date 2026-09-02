@@ -183,11 +183,8 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
           <div className="text-[15px] font-bold leading-[1.3] mb-1 text-ink line-clamp-2">{item.name}</div>
           <div className="font-oswald font-semibold text-[21px] my-2 text-ink">
             <span className="text-[13px] font-normal text-muted mr-[2px]">¥</span>
-            {item.price === 0 ?
-              <>
-                0 <span className="text-[12px] text-muted font-normal">応募無料</span>
-              </>
-            : item.price.toLocaleString()}
+            {item.chosenPrice.toLocaleString()}
+            {item.price === 0 && <span className="text-[12px] text-muted font-normal ml-1">応募無料</span>}
           </div>
 
           {/* 応募者数・当選枠 */}

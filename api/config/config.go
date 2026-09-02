@@ -3,16 +3,35 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/viper"
 )
 
 // Config はアプリケーションの全ての設定を保持する構造体です。
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	AWS      AWSConfig      `mapstructure:"aws"`
+	App       AppConfig       `mapstructure:"app"`
+	Database  DatabaseConfig  `mapstructure:"database"`
+	Redis     RedisConfig     `mapstructure:"redis"`
+	AWS       AWSConfig       `mapstructure:"aws"`
+	Cognito   CognitoConfig   `mapstructure:"cognito"`
+	Scheduler SchedulerConfig `mapstructure:"scheduler"`
+}
+
+// SchedulerConfig は EventBridge Scheduler（抽選開票のワンタイム登録）の設定です。
+// terraform/lambda の output 値を config ファイルに転記する。
+// 未設定の場合は開票スケジュールの登録をスキップする。
+type SchedulerConfig struct {
+	Region            string `mapstructure:"region"`
+	ScheduleGroupName string `mapstructure:"schedule_group_name"` // terraform output lottery_schedule_group_name
+	DrawerFunctionARN string `mapstructure:"drawer_function_arn"` // terraform output lottery_drawer_function_arn
+	ExecutionRoleARN  string `mapstructure:"execution_role_arn"`  // terraform output scheduler_execution_role_arn
+}
+
+type CognitoConfig struct {
+	Region      string `mapstructure:"region"`
+	UserPoolID  string `mapstructure:"user_pool_id"`
+	AppClientID string `mapstructure:"app_client_id"`
 }
 
 // AppConfig はアプリケーション自体の設定です。
@@ -54,7 +73,7 @@ type AWSConfig struct {
 func LoadConfig() (*Config, error) {
 	env := os.Getenv("APP_ENV")
 	if env == "" {
-		env = "local" // デフォルトは local
+		env = "dev" // デフォルトは dev
 	}
 
 	// 環境に応じた設定ファイルを読み込む (config-local.yaml, config-prod.yaml など)
@@ -65,6 +84,9 @@ func LoadConfig() (*Config, error) {
 	// AWS環境変数の読み込み設定
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("FLASHBUY")
+	// ネストした設定キー（database.password など）を環境変数で上書きできるようにする
+	// 例: FLASHBUY_DATABASE_PASSWORD=xxx で database.password を設定
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// 設定ファイルが存在する場合は読み込む
 	if err := viper.ReadInConfig(); err != nil {

@@ -1,0 +1,5 @@
+# terraform.tfvars.example — コピーして terraform.tfvars を作成し、実値を記入する
+# terraform.tfvars は .gitignore によりコミットされない
+
+# RDSのマスターパスワード（terraform/data と同じ値を指定）
+db_password = "your-rds-password-here"

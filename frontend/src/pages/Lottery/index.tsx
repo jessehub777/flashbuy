@@ -1,9 +1,9 @@
 // 抽選詳細ページ — 応募情報・倍率計算・閲覧数・応募確認
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Countdown from '../../components/Countdown'
-import { api } from '../../services/api'
+import { api, computeLotteryStatus } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
 import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
@@ -12,6 +12,7 @@ export default function LotteryDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const queryClient = useQueryClient()
   const { isLoggedIn } = useAuthStore()
   const { applyLottery, applyStatus, isApplied, resetApplyStatus } = useOrderStore()
   const [applied, setApplied] = useState(false)
@@ -24,8 +25,27 @@ export default function LotteryDetail() {
     enabled: !!id,
   })
 
-  const alreadyApplied = applied || (id ? isApplied(id) : false)
-  const winRate = item ? ((item.winnerCount / Math.max(item.applyCount + 1, 1)) * 100).toFixed(1) : '0'
+  // ログイン中のみ「自分の応募一覧」をサーバーから取得する
+  // （appliedIdsはメモリ上だけなので、ページリロード後も応募済みを正しく表示するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
+
+  const alreadyApplied =
+    applied || (id ? isApplied(id) : false) || myApplications.some((a) => a.lotteryId === id)
+  // 推定当選率:
+  //   - 応募者数が0 → 「—」（未定）
+  //   - 応募者数 <= 当選枠 → 100%（応募すれば必ず当選）
+  //   - 応募者数 > 当選枠 → 当選枠 / 応募者数
+  const winRate = item
+    ? item.applyCount === 0
+      ? '—'
+      : item.applyCount <= item.winnerCount
+        ? '100'
+        : ((item.winnerCount / item.applyCount) * 100).toFixed(1)
+    : '0'
 
   const handleApply = async () => {
     if (!isLoggedIn()) {
@@ -37,12 +57,27 @@ export default function LotteryDetail() {
     await applyLottery(id!)
     setApplied(true)
     resetApplyStatus()
+    // 応募者数（applyCount）はサーバー側で増えているため、詳細データを再取得して表示を更新する
+    queryClient.invalidateQueries({ queryKey: ['lottery', id] })
+    // 自分の応募一覧も再取得して、応募済み状態をサーバーと同期する
+    queryClient.invalidateQueries({ queryKey: ['myLotteryApplications'] })
   }
+
+  // 現在時刻を1秒ごとに更新し、ステータスをリアルタイムに再計算する。
+  // ステータスは「締切/抽選日」との時刻比較で決まるため、サーバー再取得は不要。
+  // 締切を跨ぐと自動的に ACTIVE → DRAWING、抽選日を跨ぐと DRAWING → ENDED へ遷移する。
+  const [now, setNow] = useState(() => dayjs())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   if (isLoading) return <LoadingSkeleton />
   if (!item) return <div className="p-10 text-muted font-mono">指定された抽選が見つかりません</div>
 
-  const isActive = item.status === 'ACTIVE'
+  // リアルタイム状態（item の time フィールド + ローカル時刻から導出）
+  const status = computeLotteryStatus(item, now)
+  const isActive = status === 'ACTIVE'
 
   return (
     <div className="max-w-5xl mx-auto px-10 py-10 page-enter max-sm:px-5">
@@ -61,7 +96,7 @@ export default function LotteryDetail() {
             style={{ background: 'linear-gradient(135deg, #dce4f5, #c5d3ee)' }}>
             {/* ステータスタグ（予告: パープル, 応募済: エメラルド, 受付中: ブルー, 抽選中: アンバー, 終了: ダークグレー） */}
             <div className="absolute top-4 right-4 flex items-center gap-1.5 z-10">
-              {item.status === 'UPCOMING' && !alreadyApplied && (
+              {status === 'UPCOMING' && !alreadyApplied && (
                 <span className="font-mono text-[10px] tracking-[1px] font-semibold px-[9px] py-1 rounded-[2px] bg-purple-500 text-white shadow-sm">
                   予告
                 </span>
@@ -76,12 +111,12 @@ export default function LotteryDetail() {
                   受付中
                 </span>
               )}
-              {item.status === 'DRAWING' && (
+              {status === 'DRAWING' && (
                 <span className="font-mono text-[10px] tracking-[1px] font-bold px-[9px] py-1 rounded-[2px] bg-amber-500 text-black animate-pulse shadow-sm">
                   抽選中
                 </span>
               )}
-              {!alreadyApplied && item.status !== 'UPCOMING' && !isActive && item.status !== 'DRAWING' && (
+              {!alreadyApplied && status !== 'UPCOMING' && !isActive && status !== 'DRAWING' && (
                 <span className="font-mono text-[10px] tracking-[1px] font-semibold px-[9px] py-1 rounded-[2px] bg-black/75 text-white/60 border border-white/20">
                   終了
                 </span>
@@ -91,10 +126,17 @@ export default function LotteryDetail() {
             <div className="absolute bottom-4 left-4 font-mono text-[11px] tracking-[0.5px] bg-black/60 text-white/90 px-2.5 py-1 rounded-[2px] backdrop-blur-sm z-10 flex items-center gap-1.5">
               <span>🔥</span> {item.viewCount.toLocaleString()} 回閲覧されています
             </div>
-            {/* プレースホルダー表示 */}
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="font-oswald font-bold text-[80px] text-lottery/20">{item.name.slice(0, 2)}</span>
-            </div>
+            {/* 商品画像（未登録の場合はプレースホルダーを表示） */}
+            {item.imageUrl ?
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                className="w-full h-full object-cover"
+              />
+            : <div className="w-full h-full flex items-center justify-center">
+                <span className="font-oswald font-bold text-[80px] text-lottery/20">{item.name.slice(0, 2)}</span>
+              </div>
+            }
           </div>
 
           {/* 当選確率・応募枠の数値カード */}
@@ -121,41 +163,38 @@ export default function LotteryDetail() {
           <div className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase mb-2">{item.category}</div>
           <h1 className="font-oswald font-semibold text-[32px] leading-[1.1] mb-3 text-paper">{item.name}</h1>
           <div className="font-oswald font-bold text-[36px] text-paper mb-1">
-            {item.price === 0 ?
-              <span>
-                ¥0 <span className="text-[16px] font-normal text-muted">応募無料</span>
-              </span>
-            : <>
-                <span className="text-[18px] font-normal text-muted mr-1">¥</span>
-                {item.price.toLocaleString()}
-              </>
-            }
+            <span className="text-[18px] font-normal text-muted mr-1">¥</span>
+            {item.chosenPrice.toLocaleString()}
+            {item.price === 0 && <span className="text-[16px] font-normal text-muted ml-2">応募無料</span>}
           </div>
 
           <p className="text-[14px] text-muted leading-[1.8] mt-4 mb-8">{item.description}</p>
 
           {/* Countdown — UPCOMING / DRAWING / 通常受付のステータス表示 */}
+          {/* ステータスはローカル時刻からリアルタイム計算されるため、カウントダウンが0になると
+              このコンポーネント自体が次レンダリングで対応する状態に切り替わる */}
           <div className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-4 mb-4">
-            {item.status === 'UPCOMING' ?
+            {status === 'UPCOMING' ?
               <>
                 <div className="font-mono text-[10px] text-purple-400 tracking-[1.5px] uppercase mb-3">
                   応募開始まで
                 </div>
                 <Countdown targetDate={item.startsAt} label="" showDays expiredText="受付開始" />
               </>
-            : item.status === 'DRAWING' ?
+            : status === 'DRAWING' ?
               <>
                 <div className="font-mono text-[10px] text-amber-400 tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 抽選集計中
                 </div>
-                <Countdown targetDate={item.applyDeadline} label="" showDays={false} expiredText="受付終了（抽選集計中）" />
+                {/* 開票時刻（drawAt）までのカウントダウン。0になると status が ENDED に遷移する */}
+                <Countdown targetDate={item.drawAt} label="" showDays expiredText="当落発表" />
               </>
             : !isActive ?
               <>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 応募受付終了
                 </div>
-                <Countdown targetDate={item.applyDeadline} label="" showDays={false} expiredText="受付終了" />
+                <Countdown targetDate={item.drawAt} label="" showDays expiredText="当落発表" />
               </>
             : <>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3">応募締切まで</div>
@@ -182,7 +221,7 @@ export default function LotteryDetail() {
                 </div>
               </div>
             </div>
-          : item.status === 'UPCOMING' ?
+          : status === 'UPCOMING' ?
             /* 予告：応募ボタンを disabled 表示 */
             <div>
               <button
@@ -197,10 +236,10 @@ export default function LotteryDetail() {
           : !isActive ?
             <div className="p-4 bg-white/[0.04] border border-white/[0.1] rounded-[4px] text-center">
               <div className="text-paper/70 font-semibold text-[14px]">
-                {item.status === 'DRAWING' ? '受付終了（抽選集計中）' : '受付終了'}
+                {status === 'DRAWING' ? '受付終了（抽選集計中）' : '受付終了'}
               </div>
               <div className="font-mono text-[10px] text-muted mt-1 tracking-[0.5px]">
-                {item.status === 'DRAWING' ?
+                {status === 'DRAWING' ?
                   '現在抽選の集計を行っております。当落発表までお待ちください。'
                 : 'この抽選イベントの応募受付は終了しました。'}
               </div>
@@ -264,7 +303,9 @@ export default function LotteryDetail() {
             <h3 className="font-oswald font-semibold text-[18px] mb-2">応募を確認</h3>
             <p className="text-[14px] text-muted mb-1">{item.name}</p>
             <p className="font-mono text-[11px] text-muted mb-5 tracking-[0.5px]">
-              現在の当選確率: 約 {winRate}%（{item.applyCount.toLocaleString()}人中{item.winnerCount}名当選）
+              {item.applyCount > 0 ?
+                `現在の当選確率: 約 ${winRate}%（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
+              : `当選枠 ${item.winnerCount}名（応募者募集中）`}
             </p>
             <div className="flex gap-3">
               <button

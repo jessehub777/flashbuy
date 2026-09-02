@@ -31,7 +31,8 @@ export interface LotteryItem {
   name: string
   description: string
   imageUrl: string
-  price: number // in JPY, 0 = 応募無料
+  price: number // 応募費（JPY、0 = 応募無料）
+  chosenPrice: number // 当選時に実際に支払う金額（JPY）
   winnerCount: number
   applyCount: number
   status: LotteryStatus
@@ -49,23 +50,28 @@ export interface LotteryItem {
 
 export interface FlashOrderItem {
   id: string
-  orderNo: string
   saleId: string
   saleName: string
+  imageS3Key?: string // 商品画像のS3キー
+  imageUrl?: string // 商品画像の表示用URL（toImageUrl で生成）
   price: number
   status: FlashOrderStatus
   createdAt: string
   paidAt?: string
+  expiresAt?: string // 支払期限（UNPAIDのみ）
 }
 
 export interface LotteryOrderItem {
   id: string
   lotteryId: string
   lotteryName: string
+  imageS3Key?: string // 商品画像のS3キー
+  imageUrl?: string // 商品画像の表示用URL（toImageUrl で生成）
   appliedAt: string
   status: LotteryOrderStatus
   payDeadline?: string
-  price?: number
+  price?: number // 応募費（0 = 応募無料）
+  chosenPrice?: number // 当選時に実際に支払う金額
 }
 
 // ===== Auth =====
@@ -92,12 +98,45 @@ export interface PaginatedResponse<T> {
   pageSize: number
 }
 
+// ===== Admin 商品作成 =====
+
+export interface AdminFlashPayload {
+  name: string
+  category: string
+  price: number
+  stock: number
+  description?: string
+  startsAt?: string
+  endsAt?: string
+  imageS3Key?: string // 画像のS3キー
+  // 商品仕様・注意事項
+  specifications?: { label: string; value: string }[]
+  rules?: string[]
+}
+
+export interface AdminLotteryPayload {
+  name: string
+  category: string
+  price: number // 応募費
+  chosenPrice: number // 当選時の支払額
+  winnerCount: number // 当選枠数
+  description?: string
+  startsAt?: string
+  applyDeadline?: string
+  drawAt?: string
+  imageS3Key?: string // 画像のS3キー
+  // 商品仕様・注意事項
+  specifications?: { label: string; value: string }[]
+  rules?: string[]
+}
+
 // ===== Mock payment =====
 
 export type PaymentMethod = 'credit_card' | 'convenience' | 'bank_transfer'
 
 export interface MockPaymentPayload {
   orderId: string
+  orderType: 'flash' | 'lottery'
   amount: number
   method: PaymentMethod
 }

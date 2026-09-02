@@ -1,0 +1,8 @@
+# environment="prod"   # 本番
+
+
+# ブラウザからの直接PUTを許可するオリジン（開発: * / 本番: CloudFront）
+allowed_origins=["*"]       # 開発：全部許可する
+
+# allowed_origins=["https://d8euxb1wphm3z.cloudfront.net"]     # dev：CloudFront
+# allowed_origins=["https://d2eqbke48qz3a7.cloudfront.net"]     # prod：CloudFront

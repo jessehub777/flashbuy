@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useOrderStore } from '../../stores/orderStore'
+import { computeFlashOrderStatus, computeLotteryOrderStatus } from '../../services/api'
 import { useAuthStore } from '../../stores/authStore'
 import PaymentMockModal from '../../components/PaymentMockModal'
 import { useCountdown } from '../../hooks/useCountdown'
@@ -34,29 +35,49 @@ export default function MyPage() {
     fetchApplications()
   }, [fetchApplications, fetchOrders, isLoggedIn, location, navigate])
 
+  // 現在時刻を1秒ごとに更新する（ローカル時刻の再計算のみ。サーバー再取得はしない）
+  // ページを開いたまま期限を跨いだ場合も、即座に期限切れを反映できる
+  const [now, setNow] = useState(() => dayjs())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // 支払期限を過ぎた未払い注文は、サーバーの期限切れ処理（30秒間隔）を待たずに
+  // その時点で CANCELLED として扱う（支払いボタンを出さないための二重保険）
+  const effectiveOrders = useMemo(
+    () => orders.map((o) => ({ ...o, status: computeFlashOrderStatus(o, now) })),
+    [orders, now],
+  )
+  const effectiveApplications = useMemo(
+    () => applications.map((a) => ({ ...a, status: computeLotteryOrderStatus(a, now) })),
+    [applications, now],
+  )
+
   // 統計サマリーの計算
   // 表示中のタブに対応するデータのみを集計する（購入と抽選で混ざらないようにする）
   const stats = useMemo(() => {
     if (tab === 'orders') {
-      const total = orders.length
-      const unpaid = orders.filter((o) => o.status === 'UNPAID').length
-      const paid = orders.filter((o) => o.status === 'PAID').length
-      const cancelled = orders.filter((o) => o.status === 'CANCELLED').length
+      const total = effectiveOrders.length
+      const unpaid = effectiveOrders.filter((o) => o.status === 'UNPAID').length
+      const paid = effectiveOrders.filter((o) => o.status === 'PAID').length
+      const cancelled = effectiveOrders.filter((o) => o.status === 'CANCELLED').length
       return { total, unpaid, paid, cancelled }
     }
-    // 抽選: 当選(未払い+支払済) / 抽選待ち / 落選
-    const total = applications.length
-    const won = applications.filter((a) => a.status === 'UNPAID' || a.status === 'PAID').length
-    const waiting = applications.filter((a) => a.status === 'WAITING').length
-    const lost = applications.filter((a) => a.status === 'LOST').length
-    return { total, unpaid: won, paid: waiting, cancelled: lost }
-  }, [orders, applications, tab])
+    // 抽選: 当選(未払い+支払済) / 抽選待ち / 落選 / 期限切れ（当選後に未払いで失効）
+    const total = effectiveApplications.length
+    const won = effectiveApplications.filter((a) => a.status === 'UNPAID' || a.status === 'PAID').length
+    const waiting = effectiveApplications.filter((a) => a.status === 'WAITING').length
+    const lost = effectiveApplications.filter((a) => a.status === 'LOST').length
+    const expired = effectiveApplications.filter((a) => a.status === 'CANCELLED').length
+    return { total, unpaid: won, paid: waiting, cancelled: lost + expired }
+  }, [effectiveOrders, effectiveApplications, tab])
 
   // 注文ステータスで絞り込んだリスト
   const filteredOrders = useMemo(() => {
-    if (orderStatusFilter === 'ALL') return orders
-    return orders.filter((o) => o.status === orderStatusFilter)
-  }, [orders, orderStatusFilter])
+    if (orderStatusFilter === 'ALL') return effectiveOrders
+    return effectiveOrders.filter((o) => o.status === orderStatusFilter)
+  }, [effectiveOrders, orderStatusFilter])
 
   if (!user) return null
 
@@ -87,7 +108,7 @@ export default function MyPage() {
               { label: '応募合計', value: stats.total, tone: 'paper' },
               { label: '当選', value: stats.unpaid, tone: 'lottery' },
               { label: '抽選待ち', value: stats.paid, tone: 'warning' },
-              { label: '落選', value: stats.cancelled, tone: 'muted' },
+              { label: '落選・期限切れ', value: stats.cancelled, tone: 'muted' },
             ]
         ).map((c) => (
           <div key={c.label} className="bg-ink-soft border border-white/[0.08] p-3.5 rounded-[4px]">
@@ -184,9 +205,9 @@ export default function MyPage() {
       {/* 抽選応募履歴タブ */}
       {tab === 'lottery' && (
         <div className="flex flex-col gap-3">
-          {applications.length === 0 ?
+          {effectiveApplications.length === 0 ?
             <EmptyState message="応募履歴はありません" />
-          : applications.map((app) => (
+          : effectiveApplications.map((app) => (
               <div
                 key={app.id}
                 className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-5 flex items-center justify-between gap-4 hover:border-white/20 transition-colors">

@@ -5,6 +5,8 @@ import type {
   LotteryItem,
   FlashOrderItem,
   LotteryOrderItem,
+  FlashOrderStatus,
+  LotteryOrderStatus,
   FlashStatus,
   LotteryStatus,
   MockPaymentPayload,
@@ -25,6 +27,30 @@ export function computeFlashStatus(item: FlashItem): FlashStatus {
   if (n.isAfter(dayjs(item.endsAt))) return 'ENDED'
   if (item.stock <= 0) return 'SOLD_OUT'
   return 'ACTIVE'
+}
+
+// 未払いflash注文の「実効ステータス」を支払期限から計算する。
+// 期限を過ぎた未払い注文は、サーバーの期限切れ処理（order_expirer）を待たずに
+// その時点で CANCELLED として扱う。支払いボタンを出さないための保険。
+export function computeFlashOrderStatus(
+  order: FlashOrderItem,
+  now: dayjs.Dayjs = dayjs(),
+): FlashOrderStatus {
+  if (order.status === 'UNPAID' && order.expiresAt && now.isAfter(dayjs(order.expiresAt))) {
+    return 'CANCELLED'
+  }
+  return order.status
+}
+
+// 当選（未払い）の抽選応募も同様に、支払期限（payDeadline）を過ぎたら CANCELLED として扱う
+export function computeLotteryOrderStatus(
+  app: LotteryOrderItem,
+  now: dayjs.Dayjs = dayjs(),
+): LotteryOrderStatus {
+  if (app.status === 'UNPAID' && app.payDeadline && now.isAfter(dayjs(app.payDeadline))) {
+    return 'CANCELLED'
+  }
+  return app.status
 }
 
 // 抽選の状態を「締切日」と「抽選日」から計算する。

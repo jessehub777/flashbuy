@@ -58,14 +58,16 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 	}
 
 	// orderType に応じた更新SQL（lottery は当選後に支払期限が不要になるため pay_deadline をクリア）
+	// 支払期限も条件に入れることで、期限切れ処理（order_expirer）が走る前でも
+	// 期限を過ぎた注文を支払えないようにする
 	var updateSQL string
 	switch req.OrderType {
 	case "flash":
 		updateSQL = `UPDATE flash_orders SET status = 'PAID', paid_at = $1, updated_at = now()
-		             WHERE id = $2 AND user_id = $3 AND status = 'UNPAID'`
+		             WHERE id = $2 AND user_id = $3 AND status = 'UNPAID' AND expires_at >= now()`
 	case "lottery":
 		updateSQL = `UPDATE lottery_orders SET status = 'PAID', paid_at = $1, pay_deadline = NULL, updated_at = now()
-		             WHERE id = $2 AND user_id = $3 AND status = 'UNPAID'`
+		             WHERE id = $2 AND user_id = $3 AND status = 'UNPAID' AND pay_deadline >= now()`
 	default:
 		logger.Warn("不正なorderTypeです", zap.String("orderType", req.OrderType))
 		response.Error(c, response.CodeInvalidParam)
@@ -92,6 +94,13 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
+		// 期限切れで弾かれた場合は、ランダムな決済失敗と区別できる専用コードを返す
+		if isOrderExpired(req.OrderType, req.OrderID, userID) {
+			logger.Warn("支払期限切れの注文への支払いを拒否しました",
+				zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
+			response.Error(c, response.CodeOrderExpired)
+			return
+		}
 		// 対象の注文がない（存在しない / 支払い済み / 他人の注文）
 		logger.Warn("支払い対象の注文が見つかりません",
 			zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
@@ -107,6 +116,30 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 		TransactionID: generateTransactionID(),
 		PaidAt:        paidAt.Format(time.RFC3339),
 	})
+}
+
+// isOrderExpired は対象の注文が支払期限切れかどうかを調べます。
+// 更新が0件だった理由を「期限切れ」と「その他の理由（存在しない等）」で
+// 区別するために使います。期限切れ処理済み（CANCELLED）の注文も期限切れとして扱います。
+func isOrderExpired(orderType, orderID, userID string) bool {
+	var query string
+	switch orderType {
+	case "flash":
+		query = `SELECT 1 FROM flash_orders
+		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED') AND expires_at < now()`
+	case "lottery":
+		query = `SELECT 1 FROM lottery_orders
+		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED') AND pay_deadline < now()`
+	default:
+		return false
+	}
+
+	var exists int
+	if err := database.DB.Get(&exists, query, orderID, userID); err != nil {
+		// 見つからない場合（sql.ErrNoRows）は期限切れではない
+		return false
+	}
+	return true
 }
 
 // generateTransactionID はトランザクションIDを生成します（例: TXN-3f8a9c2d）

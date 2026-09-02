@@ -91,9 +91,9 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         return false
       }
     } catch (e) {
-      // パラメータエラー（400）は注文が期限切れ・キャンセル済みの可能性が高い。
-      // ランダムな決済失敗とは区別して表示する
-      if (e instanceof ApiError && e.code === 400) {
+      // 期限切れ（10003）またはパラメータエラー（400）は、注文が期限切れ・
+      // キャンセル済みの可能性が高い。ランダムな決済失敗とは区別して表示する
+      if (e instanceof ApiError && (e.code === 10003 || e.code === 400)) {
         set({ payStatus: 'expired' })
       } else {
         set({ payStatus: 'failed' })

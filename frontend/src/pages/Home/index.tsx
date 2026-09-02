@@ -21,7 +21,7 @@ export default function Home() {
   const popularCategories = useMemo(() => {
     const fList = featuredData?.flashList ?? []
     const lList = featuredData?.lotteryList ?? []
-    
+
     const categoriesSet = new Set<string>()
     fList.forEach((s) => {
       if (s.category) categoriesSet.add(s.category)
@@ -78,7 +78,7 @@ export default function Home() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="ライブ、スニーカー、イベントを検索..."
+            placeholder="ライブ、イベントを検索..."
             className="input-dark flex-1 text-[13px]"
           />
           <button

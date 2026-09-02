@@ -24,7 +24,7 @@ export interface FlashItem {
   status: FlashStatus // 判定/動的計算
   startsAt: string // ISO datetime
   endsAt: string // ISO datetime
-  category: string // "ライブ・コンサート", "限定スニーカー" など
+  category: string // "ライブ・コンサート" など
   viewCount: number // 閲覧数（人気度指標）
   specifications?: { label: string; value: string }[] // 詳細スペック (全商品共通)
   rules?: string[] // 注意事項・購入規約リスト (全商品共通)

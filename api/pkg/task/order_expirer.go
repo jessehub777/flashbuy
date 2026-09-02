@@ -10,6 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// expireBatchSize は1回のスキャンで処理する最大件数です。
+// 期限切れが大量に溜まっていても1回あたりの負荷（メモリ・実行時間）を一定に抑える。
+// 処理しきれなかった分は次のスキャン（interval後）に持ち越される。
+const expireBatchSize = 100
+
 // expiredOrder は期限切れチェック対象の注文です
 type expiredOrder struct {
 	ID      string `db:"id"`
@@ -39,10 +44,12 @@ func StartOrderExpirer(interval time.Duration) {
 // expireOrders は期限切れ注文を1回分処理します
 func expireOrders() {
 	var orders []expiredOrder
-	// 支払い期限切れの未払い注文を取得
+	// 支払い期限切れの未払い注文を取得（LIMITで1回あたりの取得件数を制限する）
+	// 部分索引 idx_flash_orders_expire がこの条件に一致する
 	err := database.DB.Select(&orders, `
 		SELECT id, flash_id FROM flash_orders
-		WHERE status = 'UNPAID' AND expires_at < now()`)
+		WHERE status = 'UNPAID' AND expires_at < now()
+		LIMIT $1`, expireBatchSize)
 	if err != nil {
 		logger.Error("期限切れ注文の取得に失敗しました", zap.Error(err))
 		return
@@ -57,10 +64,12 @@ func expireOrders() {
 // 抽選は枠数制（在庫ではない）のため、キャンセル時に在庫の戻し処理は不要
 func expireLotteryOrders() {
 	var orders []expiredLotteryOrder
-	// 支払期限切れの未払い抽選注文を取得
+	// 支払期限切れの未払い抽選注文を取得（LIMITで1回あたりの取得件数を制限する）
+	// 部分索引 idx_lottery_orders_expire がこの条件に一致する
 	err := database.DB.Select(&orders, `
 		SELECT id FROM lottery_orders
-		WHERE status = 'UNPAID' AND pay_deadline < now()`)
+		WHERE status = 'UNPAID' AND pay_deadline < now()
+		LIMIT $1`, expireBatchSize)
 	if err != nil {
 		logger.Error("期限切れ抽選注文の取得に失敗しました", zap.Error(err))
 		return

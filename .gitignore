@@ -135,6 +135,10 @@ lambdas/*/bootstrap
 lambdas/*/*.zip
 lambdas/*/dist/
 lambdas/*/bin/
+# go build ./... をローカルで検証した際にモジュール名と同じ名前で生成される
+# ホストアーキテクチャの実行バイナリ（例: lambdas/order_expirer/order_expirer）
+lambdas/*/order_expirer
+lambdas/*/lottery_drawer
 
 # ===== Logs =====
 logs/

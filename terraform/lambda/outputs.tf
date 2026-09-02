@@ -18,3 +18,14 @@ output "lottery_drawn_topic_arn" {
   description = "開票結果イベント (lottery.drawn) の SNS トピック ARN"
   value       = aws_sns_topic.lottery_drawn.arn
 }
+
+# ===== OrderExpirer（期限切れ注文の取消）=====
+output "order_expirer_function_arn" {
+  description = "OrderExpirer Lambda の ARN（API が at() Schedule を登録する際のターゲット）"
+  value       = aws_lambda_function.order_expirer.arn
+}
+
+output "order_expirer_schedule_group_name" {
+  description = "注文期限切れ用 Schedule Group 名（抽選と同じグループを共有）"
+  value       = aws_scheduler_schedule_group.lottery.name
+}

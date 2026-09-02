@@ -91,7 +91,7 @@ flowchart TB
 
 > 注：上图为**目标架构**。
 >
-> 数据库：上图中的 Aurora 为**生产演进目标**；当前采用 **RDS PostgreSQL（provisioned）**，选型理由见 §5.1。异步 Worker（Lambda）承担抽选开奖、订单超时等批处理任务（设计见 §6）。S3 用于商品图片与详情数据的存储。
+> 数据库：上图中的 Aurora 为**生产演进目标**；当前采用 **RDS PostgreSQL（provisioned）**，选型理由见 §5.1。异步 Worker（Lambda）承担抽选开奖、订单超时等批处理任务（设计见 §6）。S3 用于存储商品图片。
 
 ---
 
@@ -116,7 +116,7 @@ flowchart TB
 
 - **Compute**: ECS Fargate Spot, AWS Lambda (Go Runtime)
 - **Database & Cache**: PostgreSQL（**当前: RDS provisioned** / 生产演进: Aurora Serverless v2, 见 §5.1）, ElastiCache Redis
-- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive（生命周期分级存储；商品图片与详情数据）
+- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive（生命周期分级存储；商品图片）
 - **Messaging & Event**: SNS Standard, EventBridge Scheduler
 - **Network & Security**: ALB, Route53, ACM, Amazon Cognito
 - **Deployment & Monitoring**: CodeDeploy, CloudWatch, Grafana
@@ -229,13 +229,30 @@ flashbuy/
 
 ### 6.1 订单超时取消 + 库存回补
 
-订单创建时写入 `expires_at`（下单 + 15 分钟）。本任务定时扫描过期未支付订单并回补库存：
+订单创建时写入 `expires_at`（秒杀 = 下单 + 15 分钟；抽选 = 中选 + 72 小时）。超时取消采用**两层结构**，兼顾"精确到点"与"可靠兜底"：
+
+**① 本线（精确到点）— EventBridge Scheduler `at()`**
+
+下单 / 中选时注册一次性的 `at(expires_at)` Schedule，到点后只针对该笔订单触发 Lambda：
+
+```
+秒杀下单成功 / 抽选中选（开奖事务内）
+    → 注册 at(pay_deadline) 一次性 Schedule（名称 expire-{orderId}，重注册覆盖）
+    → OrderExpirer Lambda（mode=cancel）:
+        取消该订单（秒杀: 回补 Redis + DB 库存；抽选: 仅改状态，名额制无库存）
+    → 触发后 Schedule 自动删除
+```
+
+**② 兜底（扫表）— EventBridge cron**
+
+`at()` 存在"注册失败 / Lambda 失败 / 调度异常"等漏配可能，故以 1 分钟周期的 cron 扫表回收：
+`WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（命中部分索引 `idx_*_orders_expire`，分批控制单次负载）。漏网的过期订单最迟在下一轮被回收。
 
 | 设计点 | 说明 |
 | :--- | :--- |
-| 部署 | EventBridge Scheduler 定时触发，独立于 API 生命周期；API 水平扩展时不会产生重复扫描竞争 |
-| 幂等 | `WHERE status='UNPAID'` + `RowsAffected` 校验，多实例/多轮触发不会重复取消 |
-| 库存回补 | Redis INCR 与 DB stock 同步恢复 |
+| 幂等 | 所有取消 SQL 带 `status='UNPAID'` + `expires_at < now()` 双条件，并以 `UPDATE ... RETURNING` 原子取回库存 ID——多轮触发、再试运行不会重复取消，也不会重复回补库存 |
+| 库存回补 | Redis INCR（幂等权威库存）与 DB stock 同步恢复；Redis 不可达时仅回补 DB 并由下轮扫描补齐 |
+| 本地环境 | `expirer_function_arn` 未配置时（本地 / Lambda 未部署）由 API 内 goroutine（1 分钟间隔）承担同等扫表逻辑，避免空窗 |
 
 ### 6.2 抽选开奖（Lottery Drawer）
 
@@ -258,8 +275,8 @@ flashbuy/
 
 | 任务 | 部署形态 | 说明 |
 | :--- | :--- | :--- |
-| 订单超时取消 + 库存回补 | **EventBridge Scheduler + Lambda** | 独立于 API 生命周期，水平扩展无重复扫描 |
-| 抽选开奖 | **EventBridge Scheduler + Lambda** | 按 draw_at 一次性触发，批处理，无常驻进程 |
+| 订单超时取消 + 库存回补 | **EventBridge `at()` 精确取消 + cron 扫表兜底 + Lambda**（`order_expirer`） | ① `at(pay_deadline)` 按单取消（即时回补库存）；② cron 每分钟扫表回收漏配订单；两类触发共用同一 Lambda，靠 `mode` 分发 |
+| 抽选开奖 | **EventBridge `at()` + Lambda** | 按 draw_at 一次性触发，批处理，无常驻进程 |
 
 ---
 

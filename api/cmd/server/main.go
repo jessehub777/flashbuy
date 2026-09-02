@@ -70,8 +70,16 @@ func main() {
 	//     バケット名が未設定の場合はスキップされ、アップロードはエラーになる）
 	s3.InitS3(&cfg.AWS)
 
-	// 8. 注文の期限切れ監視タスクを起動（30秒間隔で未払い・期限切れ注文をキャンセル）
-	go task.StartOrderExpirer(30 * time.Second)
+	// 8. 注文の期限切れ監視（1分間隔で未払い・期限切れ注文をキャンセル）
+	//    次のどちらかに該当する場合のみ API 内 goroutine をフォールバックとして使う:
+	//      ・ローカル環境（APP_ENV=local）
+	//      ・OrderExpirer Lambda が未デプロイ（expirer_function_arn 未設定）の開発環境
+	//    Lambda（at() ピンポイント + cron 掃き取り）が使える環境では起動しない。
+	//    ※ ECS に複数インスタンスで載せると goroutine が多重起動して二重処理になるため、
+	//      本番は必ず Lambda 側に寄せる
+	if cfg.App.Env == "local" || cfg.Scheduler.ExpirerFunctionARN == "" {
+		go task.StartOrderExpirer(1 * time.Minute)
+	}
 
 	// 9. Gin HTTPサーバーの設定とルーティング
 	r := router.SetupRouter(cfg.App.Env, cognitoClient)

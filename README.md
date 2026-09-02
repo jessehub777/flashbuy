@@ -91,7 +91,7 @@ flowchart TB
 
 > 注：上図は**目標アーキテクチャ**。
 >
-> データベース：図中の Aurora は**本番進化の目標**。現在は **RDS PostgreSQL（provisioned）** を採用（選定理由は §5.1）。非同期ワーカー（Lambda）は抽選開票・注文タイムアウト等のバッチ処理を担う（設計は §6）。S3 は商品画像・詳細データの保存に使用する。
+> データベース：図中の Aurora は**本番進化の目標**。現在は **RDS PostgreSQL（provisioned）** を採用（選定理由は §5.1）。非同期ワーカー（Lambda）は抽選開票・注文タイムアウト等のバッチ処理を担う（設計は §6）。S3 は商品画像の保存に使用する。
 
 ---
 
@@ -116,7 +116,7 @@ flowchart TB
 
 - **Compute**: ECS Fargate Spot, AWS Lambda (Go Runtime)
 - **Database & Cache**: PostgreSQL（**現在: RDS provisioned** / 本番進化: Aurora Serverless v2、§5.1 参照）, ElastiCache Redis
-- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive（ライフサイクル階層ストレージ；商品画像・詳細データ）
+- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive（ライフサイクル階層ストレージ；商品画像）
 - **Messaging & Event**: SNS Standard, EventBridge Scheduler
 - **Network & Security**: ALB, Route53, ACM, Amazon Cognito
 - **Deployment & Monitoring**: CodeDeploy, CloudWatch, Grafana
@@ -229,13 +229,30 @@ flashbuy/
 
 ### 6.1 注文タイムアウト取消 + 在庫復元
 
-注文作成時に `expires_at`（注文 + 15分）を設定する。本タスクは期限切れの未払い注文を定期的にスキャンし、在庫を復元する：
+注文作成時に `expires_at`（フラッシュセール = 注文 + 15分 / 抽選 = 当選 + 72時間）を設定する。タイムアウト取消は**2層構成**で、「時刻どおりの取消」と「取りこぼしの回収」を両立する：
+
+**① 本線（時刻どおり）— EventBridge Scheduler `at()`**
+
+注文作成 / 当選確定の時点で `at(expires_at)` のワンタイムScheduleを登録し、期限到来時にその注文だけを Lambda で取り消す：
+
+```
+フラッシュセール注文の作成 / 抽選の当選（開票トランザクション内）
+    → at(pay_deadline) ワンタイムScheduleを登録（名前 expire-{orderId}。再登録は上書き）
+    → OrderExpirer Lambda（mode=cancel）:
+        注文を取り消す（フラッシュセール: Redis + DB の在庫を復元 / 抽選: 枠数制のため状態変更のみ）
+    → 実行後、Schedule を自動削除
+```
+
+**② フォールバック（スキャン）— EventBridge cron**
+
+`at()` は「登録漏れ・Lambda失敗・スケジュール異常」の可能性があるため、1分周期のcronスキャンで回収する：
+`WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（部分インデックス `idx_*_orders_expire` に一致。LIMIT で1回あたりの負荷を一定に保つ）。取りこぼしは最遅でも次周期に回収される。
 
 | 設計ポイント | 説明 |
 | :--- | :--- |
-| デプロイ | EventBridge Scheduler による定期トリガー。API ライフサイクルから独立し、水平スケール時も重複スキャン競合が発生しない |
-| 冪等性 | `WHERE status='UNPAID'` + `RowsAffected` で検証し、複数インスタンス・複数回トリガーでも二重取消が発生しない |
-| 在庫復元 | Redis INCR と DB stock を同期して復元 |
+| 冪等性 | すべての取消SQLに `status='UNPAID'` + `expires_at < now()` の2条件を含め、`UPDATE ... RETURNING` で在庫IDを原子的に取得する。複数回トリガー・再試行でも二重取消・二重在庫復元が発生しない |
+| 在庫復元 | Redis INCR（権威在庫）と DB stock を同期して復元。Redis が不可達でも DB のみ復元し、次回スキャンで整合を取る |
+| ローカル環境 | `expirer_function_arn` 未設定時（ローカル / Lambda未デプロイ）は API 内 goroutine（1分間隔）が同等のスキャン処理を担い、空き期間を作らない |
 
 ### 6.2 抽選開票（Lottery Drawer）
 
@@ -258,8 +275,8 @@ flashbuy/
 
 | タスク | デプロイ形態 | 説明 |
 | :--- | :--- | :--- |
-| 注文タイムアウト取消 + 在庫復元 | **EventBridge Scheduler + Lambda** | API ライフサイクルから独立し、水平スケール時も重複スキャンなし |
-| 抽選開票 | **EventBridge Scheduler + Lambda** | draw_at に一回限りトリガー、バッチ処理、常駐プロセス不要 |
+| 注文タイムアウト取消 + 在庫復元 | **EventBridge `at()` 個別取消 + cron スキャン補完 + Lambda**（`order_expirer`） | ① `at(pay_deadline)` で注文単位に取消（在庫を即時復元）② cron が毎分スキャンして登録漏れを回収。両トリガーは同一 Lambda を `mode` で使い分け |
+| 抽選開票 | **EventBridge `at()` + Lambda** | draw_at に一回限りトリガー、バッチ処理、常駐プロセス不要 |
 
 ---
 

@@ -9,6 +9,7 @@ import (
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
 	"flashbuy/api/pkg/response"
+	"flashbuy/api/pkg/scheduler"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -112,6 +113,14 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 
 	logger.Info("フラッシュ購入が完了しました",
 		zap.String("orderId", orderID), zap.String("userId", userID), zap.String("saleId", req.SaleID))
+
+	// 支払期限到来時に OrderExpirer Lambda をピンポイントで起動するScheduleを登録する。
+	// 登録に失敗しても注文自体は成立しているため、エラーにはせずログのみ残す
+	// （OrderExpirer の cron スキャン兜底が後から回収する）
+	if err := scheduler.RegisterExpireSchedule("flash", orderID, time.Now().Add(paymentExpiry)); err != nil {
+		logger.Warn("期限切れScheduleの登録に失敗しました（cronスキャンで回収されます）",
+			zap.String("orderId", orderID), zap.Error(err))
+	}
 
 	response.Success(c, gin.H{
 		"orderId": orderID,

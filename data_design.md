@@ -163,10 +163,12 @@ CREATE TABLE flash_items (
   CONSTRAINT chk_time_range  CHECK (ends_at > starts_at)
 );
 
-CREATE INDEX idx_flash_items_view_count  ON flash_items(view_count DESC);
-CREATE INDEX idx_flash_items_times       ON flash_items(starts_at, ends_at);
-CREATE INDEX idx_flash_items_category    ON flash_items(category);
-CREATE INDEX idx_flash_items_stock       ON flash_items(stock) WHERE stock > 0;
+-- 商品テーブルには意図的にインデックスを張らない:
+--  ・商品は運用が手動作成するもので行数が少ない（数千件規模でも全表走査が十分速い）
+--  ・「開催中/予告」の商品（ends_at > now()）は常に一部だけなので、走査対象はさらに絞られる
+--  ・view_count はアクセスのたびに UPDATE される高頻度更新列。インデックスを張ると書込みが増えるだけ
+--  ・category は絞り込み検索に使われない（検索は ILIKE のため btree が効かない）
+-- 詳細は orders テーブルとの対比で: こちらは成長せず・更新が少ない → 索引コスト > 利益
 ```
 
 ### 2-3. `lottery_items` テーブル
@@ -192,9 +194,7 @@ CREATE TABLE lottery_items (
   CONSTRAINT chk_lottery_times CHECK (draw_at > apply_deadline AND apply_deadline >= starts_at)
 );
 
-CREATE INDEX idx_lottery_items_view_count   ON lottery_items(view_count DESC);
-CREATE INDEX idx_lottery_items_times        ON lottery_items(starts_at, apply_deadline, draw_at);
-CREATE INDEX idx_lottery_items_category     ON lottery_items(category);
+-- lottery_items も flash_items と同様にインデックスを張らない（運用が手動作成する低行数テーブルのため）
 ```
 
 ### 2-4. `flash_orders` テーブル（注文）
@@ -213,9 +213,13 @@ CREATE TABLE flash_orders (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_flash_orders_user_id  ON flash_orders(user_id, created_at DESC);
-CREATE INDEX idx_flash_orders_flash_id  ON flash_orders(flash_id);
-CREATE INDEX idx_flash_orders_expires  ON flash_orders(expires_at) WHERE status = 'UNPAID';
+-- 注文テーブルは継続的に増える（売れるたびに1行追加）ためインデックスを張る:
+--  ・(user_id, created_at DESC): マイページ「購入履歴」の取得。user_id で絞って created_at 降順
+--  ・(expires_at) WHERE status='UNPAID': 期限切れ監視（order_expirer / Lambda）。部分インデックスで
+--    UNPAID のみを対象にし、全体のごく一部だけを索引する
+-- flash_id にはインデックスを張らない（注文を flash_id で引くクエリは存在しない。商品削除も行わない設計）
+CREATE INDEX idx_flash_orders_user ON flash_orders (user_id, created_at DESC);
+CREATE INDEX idx_flash_orders_expire ON flash_orders (expires_at) WHERE status = 'UNPAID';
 ```
 
 ### 2-5. `lottery_orders` テーブル（抽選応募）
@@ -235,14 +239,17 @@ CREATE TABLE lottery_orders (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- 同一ユーザーの二重応募防止
+  -- 同一ユーザーの二重応募防止（user_id 先頭のため、マイページの
+  -- 「応募履歴」を user_id で絞るクエリにもこの複合ユニークが使える → 別途 user インデックス不要）
   UNIQUE (user_id, lottery_id)
 );
 
-CREATE INDEX idx_lottery_orders_user     ON lottery_orders(user_id, applied_at DESC);
-CREATE INDEX idx_lottery_orders_lottery  ON lottery_orders(lottery_id);
-CREATE INDEX idx_lottery_orders_deadline ON lottery_orders(pay_deadline)
-  WHERE status = 'UNPAID';
+-- 応募テーブルは最も増えるテーブル（1抽選で数万件の応募があり得る）:
+--  ・(lottery_id): 開票処理（WHERE lottery_id = $1 AND status = 'WAITING' の全応募走査 + FK 参照）。
+--    UNIQUE(user_id, lottery_id) では lottery_id を先頭にできないため単独で必要
+--  ・(pay_deadline) WHERE status='UNPAID': 期限切れ監視（order_expirer / Lambda）。部分インデックス
+CREATE INDEX idx_lottery_orders_lottery ON lottery_orders (lottery_id);
+CREATE INDEX idx_lottery_orders_expire ON lottery_orders (pay_deadline) WHERE status = 'UNPAID';
 ```
 
 ---

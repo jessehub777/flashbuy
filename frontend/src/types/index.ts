@@ -68,6 +68,8 @@ export interface LotteryOrderItem {
   imageS3Key?: string // 商品画像のS3キー
   imageUrl?: string // 商品画像の表示用URL（toImageUrl で生成）
   appliedAt: string
+  applyDeadline: string // 応募締切日時
+  drawAt: string // 抽選実施日時（開票待ちの残り時間表示用）
   status: LotteryOrderStatus
   payDeadline?: string
   price?: number // 応募費（0 = 応募無料）

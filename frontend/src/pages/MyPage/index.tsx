@@ -215,9 +215,9 @@ export default function MyPage() {
                   <Thumb url={app.imageUrl} name={app.lotteryName} />
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-paper truncate text-[15px]">{app.lotteryName}</div>
-                    <div className="font-mono text-[11px] text-muted mt-1 tracking-[0.5px]">
-                      応募日時: {dayjs(app.appliedAt).format('YYYY/MM/DD HH:mm')}
-                    </div>
+                    {app.status === 'WAITING' && app.drawAt && (
+                      <LotteryDrawCountdown drawAt={app.drawAt} onReached={fetchApplications} />
+                    )}
                     {app.status === 'UNPAID' && app.payDeadline && (
                       <PaymentDeadline deadline={app.payDeadline} onExpired={fetchApplications} />
                     )}
@@ -371,6 +371,43 @@ function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?
         urgent ? 'text-flash animate-pulse' : 'text-warning'
       }`}>
       支払期限まで {timeText}
+    </div>
+  )
+}
+
+// 抽選応募（WAITING）の「開票までの残り時間」を表示する。
+// 残り時間が0になったら onReached を呼び、親で応募一覧を再取得させる
+// （開票が済んでいれば UNPAID / LOST に変わり、このコンポーネントは自動で消える）。
+// 開票は EventBridge Scheduler が draw_at ちょうどに1回だけ実行するため、
+// 到着後の再取得は1回で足りる。もし再取得後も WAITING のままなら
+// 「開票待ち」を表示し、次の状態反映はユーザーの再訪問・手動更新に委ねる。
+function LotteryDrawCountdown({ drawAt, onReached }: { drawAt: string; onReached?: () => void }) {
+  const { days, hours, minutes, seconds, isExpired } = useCountdown(drawAt)
+  const reachedNotified = useRef(false)
+
+  // 開票時刻に達したら（初回表示時点で既に過ぎている場合も含め）即座に通知する
+  useEffect(() => {
+    if (isExpired && !reachedNotified.current) {
+      reachedNotified.current = true
+      onReached?.()
+    }
+  }, [isExpired, onReached])
+
+  if (isExpired) {
+    return (
+      <div className="font-mono text-[11px] text-lottery mt-1 tracking-[0.5px] font-semibold animate-pulse">
+        抽選予定時刻を過ぎました — 開票待ち
+      </div>
+    )
+  }
+
+  const numDays = Number(days)
+  const timeText =
+    numDays > 0 ? `${numDays}日 ${hours}:${minutes}:${seconds}` : `${hours}:${minutes}:${seconds}`
+
+  return (
+    <div className="font-mono text-[11px] text-lottery mt-1 tracking-[0.5px] font-semibold">
+      抽選まで {timeText}
     </div>
   )
 }

@@ -52,7 +52,7 @@ func handler(ctx context.Context, event Event) error {
 	}
 	defer db.Close()
 
-	winnerCount, appliedCount, err := drawLottery(db, event.LotteryID)
+	winnerCount, appliedCount, err := drawLottery(ctx, db, event.LotteryID)
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func handler(ctx context.Context, event Event) error {
 
 // drawLottery は抽選の本体。単一トランザクションで開票結果を書き込む。
 // 返り値: 当選者数, 応募者数
-func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
+func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, error) {
 	tx, err := db.Beginx()
 	if err != nil {
 		return 0, 0, fmt.Errorf("トランザクション開始に失敗しました: %w", err)
@@ -134,7 +134,28 @@ func drawLottery(db *sqlx.DB, lotteryID string) (int, int, error) {
 	if err := tx.Commit(); err != nil {
 		return 0, 0, fmt.Errorf("コミットに失敗しました: %w", err)
 	}
+
+	// 当選者ごとに「支払期限到来で取消」のワンタイムScheduleを登録する。
+	// 抽選は枠数制で在庫を持たないため取消はステータス変更だけで済むが、
+	// 期限切れを放置すると当選枠が宙吊りになる（繰上げ当選等の判断に支障が出る）。
+	// 登録失敗は開票結果そのものを巻き込まないよう、ログのみ残して正常終了とする
+	// （OrderExpirer の cron スキャンが後から回収する）。
+	registerPayDeadlineSchedules(ctx, winnerIDs, payDeadline)
+
 	return len(winnerIDs), len(applicantIDs), nil
+}
+
+// registerPayDeadlineSchedules は当選者全員の「支払期限切れ取消」用 Schedule を登録する。
+// 1件失敗しても残りは続行する（一部の失敗は cron スキャンが後から回収する）
+func registerPayDeadlineSchedules(ctx context.Context, winnerIDs []string, payDeadline time.Time) {
+	if len(winnerIDs) == 0 {
+		return
+	}
+	if err := registerSchedules(ctx, winnerIDs, payDeadline); err != nil {
+		// 開票は完了しているため、Schedule登録の失敗で err にはしない
+		slog.Warn("支払期限Scheduleの登録に失敗しました（cronスキャンで回収されます）",
+			"winnerCount", len(winnerIDs), "error", err)
+	}
 }
 
 // connectDB は環境変数から RDS への接続を作る。

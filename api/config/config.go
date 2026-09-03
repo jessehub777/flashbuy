@@ -18,14 +18,15 @@ type Config struct {
 	Scheduler SchedulerConfig `mapstructure:"scheduler"`
 }
 
-// SchedulerConfig は EventBridge Scheduler（抽選開票のワンタイム登録）の設定です。
+// SchedulerConfig は EventBridge Scheduler（抽選開票・注文期限切れのワンタイム登録）の設定です。
 // terraform/lambda の output 値を config ファイルに転記する。
-// 未設定の場合は開票スケジュールの登録をスキップする。
+// 未設定の場合はスケジュール登録をスキップする（ローカル環境）。
 type SchedulerConfig struct {
-	Region            string `mapstructure:"region"`
-	ScheduleGroupName string `mapstructure:"schedule_group_name"` // terraform output lottery_schedule_group_name
-	DrawerFunctionARN string `mapstructure:"drawer_function_arn"` // terraform output lottery_drawer_function_arn
-	ExecutionRoleARN  string `mapstructure:"execution_role_arn"`  // terraform output scheduler_execution_role_arn
+	Region             string `mapstructure:"region"`
+	ScheduleGroupName  string `mapstructure:"schedule_group_name"`  // terraform output lottery_schedule_group_name
+	DrawerFunctionARN  string `mapstructure:"drawer_function_arn"`  // terraform output lottery_drawer_function_arn
+	ExpirerFunctionARN string `mapstructure:"expirer_function_arn"` // terraform output order_expirer_function_arn
+	ExecutionRoleARN   string `mapstructure:"execution_role_arn"`   // terraform output scheduler_execution_role_arn
 }
 
 type CognitoConfig struct {

@@ -81,6 +81,29 @@ CREATE TABLE IF NOT EXISTS lottery_orders (
   UNIQUE (user_id, lottery_id)
 );
 
+-- 期限切れ監視（order_expirer / Lambda）用の部分索引。
+-- 対象は常に status='UNPAID' のみ。UNPAID の行は全体のごく一部なので、
+-- 通常の複合インデックスより圧倒的に小さく、更新コストも低い。
+-- スキャン条件 (status='UNPAID' AND expires_at < now()) に完全一致する。
+CREATE INDEX IF NOT EXISTS idx_flash_orders_expire ON flash_orders (expires_at)
+WHERE
+  status = 'UNPAID';
+
+CREATE INDEX IF NOT EXISTS idx_lottery_orders_expire ON lottery_orders (pay_deadline)
+WHERE
+  status = 'UNPAID';
+
+-- マイページの購入履歴取得（user_id で絞って created_at 降順）用。
+-- user_id のみだと ORDER BY でソートし直すため、複合で作ると1つのインデックスで完結する。
+-- lottery_orders 側は UNIQUE(user_id, lottery_id) の最左列が user_id のため、
+-- user_id 絞り込みには既存の複合一意制約が使える（追加不要）。
+CREATE INDEX IF NOT EXISTS idx_flash_orders_user ON flash_orders (user_id, created_at DESC);
+
+-- 抽選応募の開票処理（lottery_id で絞る）と FK 参照用。
+-- 開票Lambdaは WHERE lottery_id = $1 AND status = 'WAITING' で全応募を走査するため、
+-- UNIQUE(user_id, lottery_id) では lottery_id を先頭にできない → 単独インデックスが必要。
+CREATE INDEX IF NOT EXISTS idx_lottery_orders_lottery ON lottery_orders (lottery_id);
+
 TRUNCATE TABLE lottery_orders,
 flash_orders,
 lottery_items,

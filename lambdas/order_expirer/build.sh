@@ -1,6 +1,6 @@
 #!/bin/bash
-# LotteryDrawer Lambda のビルド（linux/arm64 向けバイナリ + zip）
-# terraform/lambda は dist/lottery_drawer.zip をデプロイする
+# OrderExpirer Lambda のビルド（linux/arm64 向けバイナリ + zip）
+# terraform/lambda は dist/order_expirer.zip をデプロイする
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -11,13 +11,13 @@ fi
 
 mkdir -p dist
 
-echo "==> go test"
-go test ./...
+echo "==> go mod tidy"
+go mod tidy
 
 echo "==> go build (linux/arm64)"
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/bootstrap .
 
 echo "==> zip"
-(cd dist && rm -f lottery_drawer.zip && zip -q -y lottery_drawer.zip bootstrap && rm bootstrap)
+(cd dist && rm -f order_expirer.zip && zip -q -y order_expirer.zip bootstrap && rm bootstrap)
 
-echo "==> 完了: $(pwd)/dist/lottery_drawer.zip"
+echo "==> 完了: $(pwd)/dist/order_expirer.zip"

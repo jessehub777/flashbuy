@@ -87,4 +87,54 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 	return err
 }
 
+// RegisterExpireSchedule は注文の支払期限切れ取消用ワンタイムScheduleを登録します。
+//
+// 購入（秒殺）・当選（抽選）のそれぞれで支払期限が確定した時点で呼び出し、
+// 期限到来時に OrderExpirer Lambda を1件だけ対象に呼び出させます（遅延なしで在庫が戻る）。
+//
+// 取りこぼし（登録失敗・Lambda失敗）に備え、OrderExpirer 側には cron による
+// スキャン兜底も別途用意しているため、ここでの登録失敗はエラーにせずログのみ残します
+// （呼び出し側で warn ログを出して処理を継続する）。
+//
+// Schedule名は orderID から一意に決まるため、重複登録は上書きになります。
+func RegisterExpireSchedule(orderType, orderID string, expiresAt time.Time) error {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if client == nil || cfg == nil {
+		// 未設定（ローカルdocker環境など）は登録せず正常終了とする
+		return nil
+	}
+	if cfg.ExpirerFunctionARN == "" {
+		// OrderExpirer 未デプロイ（terraform apply 前）はスキップ
+		return nil
+	}
+
+	name := fmt.Sprintf("expire-%s", orderID)
+	// ハンドラは mode で処理を分岐するため、mode を必ず含める
+	input := fmt.Sprintf(`{"mode":"cancel","orderType":%q,"orderId":%q}`, orderType, orderID)
+	groupName := cfg.ScheduleGroupName
+	arn := cfg.ExpirerFunctionARN
+	roleArn := cfg.ExecutionRoleARN
+	// at() 式は UTC 時刻（Z サフィックスは付与しない。付けると ValidationException になる）
+	at := expiresAt.UTC().Format("2006-01-02T15:04:05")
+
+	_, err := client.CreateSchedule(context.TODO(), &scheduler.CreateScheduleInput{
+		Name:               &name,
+		GroupName:          &groupName,
+		Description:        ptr("未払い注文の期限切れ取消（作成時に自動登録。実行後に自動削除）"),
+		ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
+		FlexibleTimeWindow: &types.FlexibleTimeWindow{
+			Mode: types.FlexibleTimeWindowModeOff,
+		},
+		ActionAfterCompletion: types.ActionAfterCompletionDelete,
+		Target: &types.Target{
+			Arn:     &arn,
+			RoleArn: &roleArn,
+			Input:   &input,
+		},
+	})
+	return err
+}
+
 func ptr(s string) *string { return &s }

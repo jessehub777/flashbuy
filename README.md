@@ -233,15 +233,16 @@ flashbuy/
 
 **① 本線（時刻どおり）— EventBridge Scheduler `at()`**
 
-注文作成 / 当選確定の時点で `at(expires_at)` のワンタイムScheduleを登録し、期限到来時にその注文だけを Lambda で取り消す：
+注文作成時に `at(expires_at)` のワンタイムScheduleを登録し、期限到来時にその注文だけを Lambda で取り消す：
 
 ```
-フラッシュセール注文の作成 / 抽選の当選（開票トランザクション内）
-    → at(pay_deadline) ワンタイムScheduleを登録（名前 expire-{orderId}。再登録は上書き）
-    → OrderExpirer Lambda（mode=cancel）:
-        注文を取り消す（フラッシュセール: Redis + DB の在庫を復元 / 抽選: 枠数制のため状態変更のみ）
+フラッシュセール注文の作成
+    → at(expires_at) ワンタイムScheduleを登録（名前 expire-{orderId}。再登録は上書き）
+    → OrderExpirer Lambda（mode=cancel）: 注文を取り消し、在庫を復元
     → 実行後、Schedule を自動削除
 ```
+
+> **抽選について**: 当選注文は `at()` による個別取消を行いません。開票Lambdaは private subnet に配置されており（NAT Gateway も EventBridge Scheduler の VPC Endpoint も無し）、そこからパブリックな AWS API を呼ぶとSYNが破棄され60秒のタイムアウトまでハングし、開票自体が失敗します。当選注文の期限切れは下記の cron スキャンで回収します（支払期限は72時間あり、枠数制で在庫復元も不要なため1分程度の遅延は問題になりません）。
 
 **② フォールバック（スキャン）— EventBridge cron**
 
@@ -275,7 +276,7 @@ flashbuy/
 
 | タスク | デプロイ形態 | 説明 |
 | :--- | :--- | :--- |
-| 注文タイムアウト取消 + 在庫復元 | **EventBridge `at()` 個別取消 + cron スキャン補完 + Lambda**（`order_expirer`） | ① `at(pay_deadline)` で注文単位に取消（在庫を即時復元）② cron が毎分スキャンして登録漏れを回収。両トリガーは同一 Lambda を `mode` で使い分け |
+| 注文タイムアウト取消 + 在庫復元 | **EventBridge `at()` 個別取消（秒殺のみ）+ cron スキャン（全件・兜底）+ Lambda**（`order_expirer`） | ① 秒殺は `at(expires_at)` で注文単位に取消（在庫を即時復元）② 抽選の当選分と①の登録漏れは cron が毎分スキャンして回収。両トリガーは同一 Lambda を `mode` で使い分け |
 | 抽選開票 | **EventBridge `at()` + Lambda** | draw_at に一回限りトリガー、バッチ処理、常駐プロセス不要 |
 
 ---

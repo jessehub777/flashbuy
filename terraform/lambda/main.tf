@@ -145,11 +145,6 @@ resource "aws_lambda_function" "lottery_drawer" {
       DB_PASSWORD = var.db_password
       DB_SSLMODE  = "require"
       SNS_TOPIC_ARN = aws_sns_topic.lottery_drawn.arn
-
-      # 当選者の支払期限切れ取消Schedule登録先（未設定なら登録をスキップ）
-      EXPIRER_FUNCTION_ARN = aws_lambda_function.order_expirer.arn
-      SCHEDULE_GROUP_NAME  = aws_scheduler_schedule_group.lottery.name
-      SCHEDULER_ROLE_ARN   = aws_iam_role.scheduler_invoke.arn
     }
   }
 

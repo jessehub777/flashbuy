@@ -233,15 +233,16 @@ flashbuy/
 
 **① 本线（精确到点）— EventBridge Scheduler `at()`**
 
-下单 / 中选时注册一次性的 `at(expires_at)` Schedule，到点后只针对该笔订单触发 Lambda：
+秒杀下单时注册一次性的 `at(expires_at)` Schedule，到点后只针对该笔订单触发 Lambda：
 
 ```
-秒杀下单成功 / 抽选中选（开奖事务内）
-    → 注册 at(pay_deadline) 一次性 Schedule（名称 expire-{orderId}，重注册覆盖）
-    → OrderExpirer Lambda（mode=cancel）:
-        取消该订单（秒杀: 回补 Redis + DB 库存；抽选: 仅改状态，名额制无库存）
+秒杀下单成功
+    → 注册 at(expires_at) 一次性 Schedule（名称 expire-{orderId}，重注册覆盖）
+    → OrderExpirer Lambda（mode=cancel）: 取消该订单 + 回补 Redis/DB 库存
     → 触发后 Schedule 自动删除
 ```
+
+> **关于抽选**：中选订单**不走** `at()` 精确取消。开奖 Lambda 位于私有子网（无 NAT / 无 Scheduler VPC Endpoint），若在其中调用公网 AWS API 会 SYN 丢弃并挂起至 60s 超时，导致开奖本身失败。抽选中选的超时统一由下方的 cron 扫表兜底处理——其支付期长达 72 小时，且名额制无库存需即时回补，分钟级延迟完全可接受。
 
 **② 兜底（扫表）— EventBridge cron**
 
@@ -275,7 +276,7 @@ flashbuy/
 
 | 任务 | 部署形态 | 说明 |
 | :--- | :--- | :--- |
-| 订单超时取消 + 库存回补 | **EventBridge `at()` 精确取消 + cron 扫表兜底 + Lambda**（`order_expirer`） | ① `at(pay_deadline)` 按单取消（即时回补库存）；② cron 每分钟扫表回收漏配订单；两类触发共用同一 Lambda，靠 `mode` 分发 |
+| 订单超时取消 + 库存回补 | **EventBridge `at()` 精确取消（仅秒杀）+ cron 扫表（全量兜底）+ Lambda**（`order_expirer`） | ① 秒杀按 `at(expires_at)` 逐单取消（即时回补库存）；② 抽选中选单与 ① 的漏配订单由 cron 每分钟扫表回收；两类触发共用同一 Lambda，靠 `mode` 分发 |
 | 抽选开奖 | **EventBridge `at()` + Lambda** | 按 draw_at 一次性触发，批处理，无常驻进程 |
 
 ---

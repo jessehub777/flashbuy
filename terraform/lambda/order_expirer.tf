@@ -118,32 +118,14 @@ resource "aws_lambda_function" "order_expirer" {
 }
 
 # ==============================================================================
-# LotteryDrawer が「当選者の支払期限取消Schedule」を登録できるようにする
+# 注: LotteryDrawer には Scheduler 登録権限を与えない
 # ==============================================================================
-# 当選者IDは開票トランザクション内で決まるため、開票Lambda自身が
-# EventBridge Scheduler へ at(pay_deadline) のワンタイムScheduleを登録する。
-# （API側からは「誰が当選したか」を事前に知りようがないため）
-resource "aws_iam_role_policy" "lottery_drawer_scheduler" {
-  name = "${var.project_name}-drawer-scheduler-${var.environment}"
-  role = aws_iam_role.lottery_drawer.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["scheduler:CreateSchedule", "scheduler:GetSchedule", "scheduler:UpdateSchedule"]
-        Resource = ["*"]
-      },
-      {
-        # Scheduler に渡す実行ロールの引き受けを許可
-        Effect   = "Allow"
-        Action   = ["iam:PassRole"]
-        Resource = [aws_iam_role.scheduler_invoke.arn]
-      }
-    ]
-  })
-}
+# 開票Lambdaは private_subnet に配置されており、このVPCにはNAT Gatewayも
+# EventBridge Scheduler の VPC Endpoint も無い。そのため Lambda 内から
+# scheduler.*.amazonaws.com を呼ぶとSYNがドロップされ、Lambdaタイムアウト(60s)
+# までハングして開票処理そのものが失敗する（Secrets Manager で過去に同事故あり）。
+# 当選者の期限切れ取消は order_expirer の cron スキャンで十分カバーできる
+# （抽選の支払期限は72時間あり、1分程度の遅延は問題にならない）。
 
 # ==============================================================================
 # ② スキャン（兜底）— EventBridge Rules の cron で定期実行

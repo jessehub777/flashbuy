@@ -139,14 +139,14 @@ func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, 
 	// 抽選は枠数制で在庫を持たないため取消はステータス変更だけで済むが、
 	// 期限切れを放置すると当選枠が宙吊りになる（繰上げ当選等の判断に支障が出る）。
 	// 登録失敗は開票結果そのものを巻き込まないよう、ログのみ残して正常終了とする
-	// （OrderExpirer の cron スキャン兜底が後から回収する）。
+	// （OrderExpirer の cron スキャンが後から回収する）。
 	registerPayDeadlineSchedules(ctx, winnerIDs, payDeadline)
 
 	return len(winnerIDs), len(applicantIDs), nil
 }
 
-// registerPayDeadlineSchedules は当選者全員の支払期限取消Scheduleを登録する。
-// 1件失敗しても残りは続行する（部分的な失敗は兜底スキャンが回収する）
+// registerPayDeadlineSchedules は当選者全員の「支払期限切れ取消」用 Schedule を登録する。
+// 1件失敗しても残りは続行する（一部の失敗は cron スキャンが後から回収する）
 func registerPayDeadlineSchedules(ctx context.Context, winnerIDs []string, payDeadline time.Time) {
 	if len(winnerIDs) == 0 {
 		return

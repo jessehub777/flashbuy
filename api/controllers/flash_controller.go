@@ -37,6 +37,11 @@ func (h *FlashController) GetFlashList(c *gin.Context) {
 		return
 	}
 
+	// 0件のときも [] を返す（nil のままだと JSON が null になり、フロント側のエラーになるため）
+	if flashList == nil {
+		flashList = []models.FlashItem{}
+	}
+
 	response.Success(c, gin.H{
 		"flashList": flashList,
 	})
@@ -154,8 +159,10 @@ func getFlashStock(id string) (int, error) {
 	if err := database.DB.Get(&stock, "SELECT stock FROM flash_items WHERE id = $1", id); err != nil {
 		return 0, err
 	}
+	// Redisに載せられなくても、DBの在庫は正しいのでそのまま返す
+	// （キャッシュ障害時にDBへフォールバックする方針と同じ。失敗はログだけ残す）
 	if err := cache.InitStock(id, stock, 0); err != nil {
-		return 0, err
+		logger.Warn("在庫のプレヒートに失敗しました（DBの値をそのまま返します）", zap.String("flashId", id), zap.Error(err))
 	}
 	return stock, nil
 }

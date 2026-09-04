@@ -66,6 +66,14 @@ func (h *SearchController) Search(c *gin.Context) {
 		return
 	}
 
+	// 0件のときも [] を返す（nil のままだと JSON が null になり、フロント側のエラーになるため）
+	if flashList == nil {
+		flashList = []models.FlashItem{}
+	}
+	if lotteryList == nil {
+		lotteryList = []models.LotteryItem{}
+	}
+
 	response.Success(c, gin.H{
 		"flashList":   flashList,
 		"lotteryList": lotteryList,

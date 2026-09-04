@@ -1,0 +1,6 @@
+# イメージに機密情報・不要ファイルを入れないための除外設定
+.git
+config-dev.yaml
+config-local.yaml
+docker-compose.yml
+init_db.sql

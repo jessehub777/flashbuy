@@ -14,6 +14,10 @@ mkdir -p dist
 echo "==> go mod tidy"
 go mod tidy
 
+# SQL冪等性のガード条件などを検証する単体テスト（lottery_drawer/build.sh と同じく、ビルド時に必ず走らせる）
+echo "==> go test"
+go test ./...
+
 echo "==> go build (linux/arm64)"
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o dist/bootstrap .
 

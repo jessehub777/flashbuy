@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { FlashTicket, LotteryTicket } from '../../components/TicketCard'
 import { api } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
+import { useAuthStore } from '../../stores/authStore'
 
 type TimeRange = '6m' | '1y' | '3y'
 
@@ -15,6 +16,14 @@ export default function SearchPage() {
   const [inputValue, setInputValue] = useState(query)
   const [timeRange, setTimeRange] = useState<TimeRange>('6m')
   const { appliedIds } = useOrderStore()
+  const { isLoggedIn } = useAuthStore()
+
+  // ログイン中はサーバーから応募済み状態を取得する（リロード後も表示を維持するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
 
   // URLのクエリが変わったときに入力フィールドも更新する
   useEffect(() => {
@@ -60,13 +69,13 @@ export default function SearchPage() {
           </button>
         </form>
 
-        {/* 開催・販売時期フィルター（AWS S3 Glacier アーカイブ分離仕様：全期間スキャンを禁止） */}
+        {/* 開催・販売時期フィルター（全期間の一括スキャンを避けるため対象期間を絞る） */}
         <div className="flex items-center gap-2 mt-4 flex-wrap">
           <span className="font-mono text-[11px] text-muted tracking-[1px] uppercase mr-1">対象期間:</span>
           {[
-            { id: '6m', label: '6ヶ月以内 (Aurora/S3)' },
-            { id: '1y', label: '1年以内 (S3 IA)' },
-            { id: '3y', label: '3年以内 (S3 Glacier)' },
+            { id: '6m', label: '6ヶ月以内' },
+            { id: '1y', label: '1年以内' },
+            { id: '3y', label: '3年以内' },
           ].map((range) => (
             <button
               key={range.id}
@@ -155,7 +164,7 @@ export default function SearchPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 pb-6">
             {lotteryList.map((item) => (
-              <LotteryTicket key={item.id} item={item} applied={appliedIds.has(item.id)} />
+              <LotteryTicket key={item.id} item={item} applied={appliedIds.has(item.id) || myApplications.some((a) => a.lotteryId === item.id)} />
             ))}
           </div>
         </div>

@@ -1,4 +1,4 @@
-// ログインページ — Mock 認証（本番は Amazon Cognito を使う）
+// ログインページ — Cognito認証（バックエンド経由でログインする）
 import { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';

@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { FlashTicket, LotteryTicket } from '../../components/TicketCard'
 import { api } from '../../services/api'
 import { useOrderStore } from '../../stores/orderStore'
+import { useAuthStore } from '../../stores/authStore'
 
 export default function Home() {
   const navigate = useNavigate()
@@ -36,6 +37,15 @@ export default function Home() {
   const lotteryList = featuredData?.lotteryList ?? []
 
   const { appliedIds } = useOrderStore()
+  const { isLoggedIn } = useAuthStore()
+
+  // ログイン中はサーバーから自分の応募一覧を取得する
+  // （appliedIds はメモリ上だけのため、リロード後も応募済み表示を維持するため）
+  const { data: myApplications = [] } = useQuery({
+    queryKey: ['myLotteryApplications'],
+    queryFn: api.getMyLotteryApplicationList,
+    enabled: isLoggedIn(),
+  })
 
   // 検索フォームの送信
   const handleSearch = (e: React.FormEvent) => {
@@ -61,7 +71,7 @@ export default function Home() {
             🎯 フェアな自動抽選エンジン
           </span>
           <span className="font-mono text-[11px] tracking-[0.5px] text-paper/80 bg-white/[0.05] border border-white/[0.1] px-2.5 py-1 rounded-[2px] hidden md:inline-block">
-            🛡️ トークンバケット限流
+            🛡️ Redis Luaによる原子在庫制御
           </span>
         </div>
 
@@ -164,7 +174,7 @@ export default function Home() {
           <EmptyState message="現在開催中の抽選はありません" />
         : <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {lotteryList.map((item) => (
-              <LotteryTicket key={item.id} item={item} applied={appliedIds.has(item.id)} />
+              <LotteryTicket key={item.id} item={item} applied={appliedIds.has(item.id) || myApplications.some((a) => a.lotteryId === item.id)} />
             ))}
           </div>
         }

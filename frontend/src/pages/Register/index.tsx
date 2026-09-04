@@ -104,6 +104,10 @@ export default function Register() {
             />
           </div>
 
+          <p className="font-mono text-[10px] text-muted tracking-[0.5px]">
+            ※ パスワードは8文字以上で、大文字・小文字・数字を含める必要があります
+          </p>
+
           {error && (
             <p className="font-mono text-[12px] text-flash tracking-[0.5px]">{error}</p>
           )}

@@ -90,8 +90,10 @@ func LoadConfig() (*Config, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// 設定ファイルが存在する場合は読み込む
+	// 注意: viperの仕様で、設定ファイルに無いキーは環境変数で上書きできない。
+	// そのため「設定ファイル無し + 環境変数のみ」の起動は原則不可（yamlを必ず用意すること）。
 	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("設定ファイル(config-%s.yaml)が見つかりません。環境変数のみを使用します。", env)
+		log.Printf("設定ファイル(config-%s.yaml)が見つかりません。環境変数だけでは設定が足りないため、設定ファイルを用意してください", env)
 	}
 
 	// 構造体にマッピング

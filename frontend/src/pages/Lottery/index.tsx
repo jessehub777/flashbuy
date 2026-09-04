@@ -16,6 +16,7 @@ export default function LotteryDetail() {
   const { isLoggedIn } = useAuthStore()
   const { applyLottery, applyStatus, isApplied, resetApplyStatus } = useOrderStore()
   const [applied, setApplied] = useState(false)
+  const [applyError, setApplyError] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
 
   // IDで抽選情報を取得する（閲覧数を1プラスする）
@@ -54,8 +55,14 @@ export default function LotteryDetail() {
       return
     }
     setShowConfirm(false)
+    setApplyError(false)
     await applyLottery(id!)
-    setApplied(true)
+    // 成功したときだけ「応募済み」にする（失敗したのに応募済みと表示しないため）
+    if (useOrderStore.getState().applyStatus === 'applied') {
+      setApplied(true)
+    } else {
+      setApplyError(true)
+    }
     resetApplyStatus()
     // 応募者数（applyCount）はサーバー側で増えているため、詳細データを再取得して表示を更新する
     queryClient.invalidateQueries({ queryKey: ['lottery', id] })
@@ -254,6 +261,11 @@ export default function LotteryDetail() {
               <p className="font-mono text-[10px] text-muted mt-2 text-center tracking-[0.5px]">
                 応募は無料 / 一人につき1回まで
               </p>
+              {applyError && (
+                <p className="font-mono text-[10px] text-flash mt-2 text-center tracking-[0.5px]">
+                  応募に失敗しました。時間をおいて再度お試しください。
+                </p>
+              )}
             </>
           }
         </div>

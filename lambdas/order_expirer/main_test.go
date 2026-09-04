@@ -39,6 +39,26 @@ func TestRestoreRedisStock_NilClientIsNoop(t *testing.T) {
 	restoreDBStock(nil, "item-1")
 }
 
+// TestRestoreRedisStock_MissingKeyIsNoop は存在しないkeyに在庫を作らないことを確認する。
+// （単純な INCR だと key が無い場合に 1 から作られ、DBと食い違う架空の在庫が生まれる。
+//   API側の IncrStock と挙動を揃えている）
+func TestRestoreRedisStock_MissingKeyIsNoop(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis の起動に失敗しました: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	restoreRedisStock(context.Background(), rdb, "item-unknown")
+
+	if mr.Exists("stock:item-unknown") {
+		t.Error("存在しないkeyに在庫を作ってはいけません")
+	}
+}
+
 // TestConnectRedis_NoHostReturnsNil はREDIS_HOST未設定のときnilが返ることを確認する。
 // この場合、DB側の取り消しは続行し、Redis在庫の復元だけがスキップされる。
 func TestConnectRedis_NoHostReturnsNil(t *testing.T) {

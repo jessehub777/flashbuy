@@ -251,7 +251,17 @@ func restoreRedisStock(ctx context.Context, rdb *redis.Client, flashID string) {
 		return
 	}
 	key := "stock:" + flashID
-	if err := rdb.Incr(ctx, key).Err(); err != nil {
+	// API側（pkg/cache/stock.go の IncrStock）と同じスクリプトを使う。
+	// 単純な INCR は key が存在しない場合に 1 から作ってしまい、
+	// DBと食い違う架空の在庫が生まれるため、key が無い場合は何もしない。
+	const script = `
+		local stock = redis.call('GET', KEYS[1])
+		if not stock then
+			return -1 -- 未プレヒート（何もしない）
+		end
+		return redis.call('INCR', KEYS[1])
+	`
+	if _, err := rdb.Eval(ctx, script, []string{key}).Result(); err != nil {
 		slog.Warn("Redis在庫の復元に失敗しました", "flashId", flashID, "error", err)
 	}
 }

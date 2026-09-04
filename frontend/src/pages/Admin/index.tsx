@@ -1,5 +1,5 @@
 // Admin page — flash and lottery management (create + list)
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../../stores/authStore'
@@ -15,18 +15,26 @@ export default function Admin() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createType, setCreateType] = useState<'flash' | 'lottery'>('flash')
 
-  // 管理画面用の一覧（終了済みも含む全件）
+  // 管理画面用の一覧（終了済みも含む全件）。未ログイン・非管理者のときはリクエストしない
   const { data: flashList = [] } = useQuery({
     queryKey: ['adminFlashList'],
     queryFn: api.adminGetFlashList,
+    enabled: isLoggedIn() && isAdmin(),
   })
   const { data: lotteryList = [] } = useQuery({
     queryKey: ['adminLotteryList'],
     queryFn: api.adminGetLotteryList,
+    enabled: isLoggedIn() && isAdmin(),
   })
 
+  // 未ログインならログイン画面へ移動する（render中にnavigateしないようにuseEffectで行う）
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      navigate('/login')
+    }
+  }, [isLoggedIn, navigate])
+
   if (!isLoggedIn()) {
-    navigate('/login')
     return null
   }
   if (!isAdmin()) {

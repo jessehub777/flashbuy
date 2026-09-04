@@ -74,10 +74,10 @@ resource "aws_cloudfront_distribution" "this" {
     cached_methods   = ["GET", "HEAD"]
     target_origin_id = "S3Origin-${var.env}"
     compress         = true
-    
+
     # 使用 Cache Policy 替代过时的 forwarded_values
     cache_policy_id = data.aws_cloudfront_cache_policy.caching_optimized.id
-    
+
     viewer_protocol_policy = "redirect-to-https"
   }
 

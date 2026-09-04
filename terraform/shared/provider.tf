@@ -6,6 +6,16 @@ terraform {
       version = "~> 6.0"
     }
   }
+
+  # S3 Remote State（他モジュールと同じ。既存のlocal stateからの移行は
+  # terraform init -migrate-state で行う）
+  backend "s3" {
+    bucket       = "flashbuy-terraform-state"
+    key          = "shared/terraform.tfstate"
+    region       = "ap-northeast-1"
+    use_lockfile = true
+    encrypt      = true
+  }
 }
 
 provider "aws" {

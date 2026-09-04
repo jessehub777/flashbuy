@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"errors"
 	"time"
 
@@ -49,6 +50,11 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 	if err := lockStock(req.SaleID); err != nil {
 		if errors.Is(err, cache.ErrOutOfStock) {
 			response.Error(c, response.CodeOutOfStock)
+			return
+		}
+		// 商品が存在しない場合（saleIdが不正）はパラメータエラーとして返す
+		if errors.Is(err, sql.ErrNoRows) {
+			response.Error(c, response.CodeInvalidParam)
 			return
 		}
 		logger.Error("在庫のロックに失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))

@@ -158,3 +158,8 @@ junit.xml
 .cache/
 .temp/
 .tmp/
+
+AGENTS.md
+TODO.md
+INTERVIEW.md
+.codebuddy/

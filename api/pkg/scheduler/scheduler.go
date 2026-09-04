@@ -5,6 +5,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +85,24 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 			Input:   &input,
 		},
 	})
+	if err != nil && isConflict(err) {
+		// 同じ名前がある場合は上書きする
+		_, err = client.UpdateSchedule(context.TODO(), &scheduler.UpdateScheduleInput{
+			Name:               &name,
+			GroupName:          &groupName,
+			Description:        ptr("抽選開票（作成時に自動登録。実行後に自動削除）"),
+			ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
+			FlexibleTimeWindow: &types.FlexibleTimeWindow{
+				Mode: types.FlexibleTimeWindowModeOff,
+			},
+			ActionAfterCompletion: types.ActionAfterCompletionDelete,
+			Target: &types.Target{
+				Arn:     &arn,
+				RoleArn: &roleArn,
+				Input:   &input,
+			},
+		})
+	}
 	return err
 }
 
@@ -134,7 +153,30 @@ func RegisterExpireSchedule(orderType, orderID string, expiresAt time.Time) erro
 			Input:   &input,
 		},
 	})
+	if err != nil && isConflict(err) {
+		// 同じ名前がある場合は上書きする
+		_, err = client.UpdateSchedule(context.TODO(), &scheduler.UpdateScheduleInput{
+			Name:               &name,
+			GroupName:          &groupName,
+			Description:        ptr("未払い注文の期限切れ取消（作成時に自動登録。実行後に自動削除）"),
+			ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
+			FlexibleTimeWindow: &types.FlexibleTimeWindow{
+				Mode: types.FlexibleTimeWindowModeOff,
+			},
+			ActionAfterCompletion: types.ActionAfterCompletionDelete,
+			Target: &types.Target{
+				Arn:     &arn,
+				RoleArn: &roleArn,
+				Input:   &input,
+			},
+		})
+	}
 	return err
 }
 
 func ptr(s string) *string { return &s }
+
+// isConflict は Schedule 名の重複エラーかを判定する
+func isConflict(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Conflict")
+}

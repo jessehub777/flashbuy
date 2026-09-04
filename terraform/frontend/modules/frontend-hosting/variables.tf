@@ -19,3 +19,11 @@ variable "force_destroy" {
   default     = true
   description = "Force destroy S3 bucket even if it has contents"
 }
+
+# API（ECSのALB）のDNS名。terraform/compute の output "alb_dns_name" を渡す。
+# 空の場合は /api/* の転送設定を作らない（compute がまだ無い prod でも動くようにするため）
+variable "api_origin_domain" {
+  type        = string
+  default     = ""
+  description = "ALB DNS name for /api/* forwarding (empty = disabled)"
+}

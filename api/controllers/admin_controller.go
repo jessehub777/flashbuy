@@ -74,6 +74,13 @@ func (h *AdminController) CreateFlash(c *gin.Context) {
 		item.EndsAt = *req.EndsAt
 	}
 
+	// 終了時刻は開始時刻より後であること（DBのCHECK制約で500になる前に、パラメータエラーとして返す）
+	if !item.EndsAt.After(item.StartsAt) {
+		logger.Warn("終了時刻が開始時刻以前です", zap.String("name", req.Name))
+		response.Error(c, response.CodeInvalidParam)
+		return
+	}
+
 	// ImageS3Key は空文字の場合はNULLにする（ポインタ経由）
 	if req.ImageS3Key != "" {
 		item.ImageS3Key = &req.ImageS3Key

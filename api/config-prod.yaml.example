@@ -1,0 +1,45 @@
+# ECS(Fargate) 用の設定template。APP_ENV=prod で起動するとこのファイルが読まれる。
+# 使い方: cp config-prod.yaml.example config-prod.yaml（config-prod.yaml は gitignore 済み）
+# 真値を config-prod.yaml.example に書かないこと。書くと Docker イメージに入る。
+# 「prod」は本番という意味ではなく「クラウドで動かすときの設定ファイル」の名前。
+# dev/prod の環境差分は、タスク定義の環境変数（FLASHBUY_*）ですべて上書きする。
+#
+# 注意: viper の仕様上、このファイルに存在しないキーは環境変数で上書きできない。
+# そのため上書きしたいキーは必ずここに列挙しておくこと（値は空でよい）。
+app:
+  env: prod
+  port: "8080"
+
+database:
+  host: ""       # FLASHBUY_DATABASE_HOST で上書き（terraform data の rds_host）
+  port: 5432
+  user: "flashbuy"
+  password: ""   # タスク定義の secrets（Secrets Manager）で FLASHBUY_DATABASE_PASSWORD を注入
+  dbname: "flashbuy"
+  sslmode: require
+
+redis:
+  host: ""       # FLASHBUY_REDIS_HOST で上書き（ElastiCache。VPC内なのでタスクから直接届く）
+  port: 6379
+  password: ""
+  db: 0
+
+aws:
+  region: ap-northeast-1
+  access_key_id: ""     # 認証はタスクロールで行うため空でよい
+  secret_access_key: ""
+  s3_bucket_name: ""    # FLASHBUY_AWS_S3_BUCKET_NAME で上書き（terraform storage の output）
+
+cognito:
+  region: ap-northeast-1
+  user_pool_id: ""      # FLASHBUY_COGNITO_USER_POOL_ID で上書き（terraform auth の output）
+  app_client_id: ""     # FLASHBUY_COGNITO_APP_CLIENT_ID で上書き
+
+# EventBridge Scheduler（開票・期限切れ取消のワンタイム登録）。
+# ECSタスクは公有サブネット（公開IPあり）なので、ここが埋まっていれば登録が有効になる。
+scheduler:
+  region: ap-northeast-1
+  schedule_group_name: ""
+  drawer_function_arn: ""
+  expirer_function_arn: ""
+  execution_role_arn: ""

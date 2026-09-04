@@ -1,0 +1,5 @@
+# terraform.tfvars の見本。コピーして terraform.tfvars を作る（gitignore済み）。
+project_name = "flashbuy"
+environment  = "dev"
+aws_region   = "ap-northeast-1"
+db_password  = "<data モジュールと同じRDSパスワード>"

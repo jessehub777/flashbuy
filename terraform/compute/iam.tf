@@ -76,6 +76,13 @@ resource "aws_iam_role_policy" "task" {
         Resource = data.terraform_remote_state.lambda.outputs.scheduler_execution_role_arn
       },
       {
+        # 画像の直PUT用 Presigned URL の署名者になるため Put が要る。
+        # 署名自体はローカル計算だが、PUT時に S3 側が署名者の権限を見る
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "arn:aws:s3:::${data.terraform_remote_state.storage.outputs.images_bucket_name}/*"
+      },
+      {
         # 会員登録・ログインで使う。タスクの資格情報で署名するので、拒否されると全滅する
         # 確認スキップは PoC 用。生産では外す
         Effect = "Allow"

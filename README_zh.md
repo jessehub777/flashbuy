@@ -279,20 +279,35 @@ flashbuy/
 | 运行时间有限 | 从 `lottery_orders` 随机抽 N 条，几秒内完成，远低于 Lambda 15min 上限 |
 | 按商品独立调度 | 每创建一个抽选商品就注册一个一次性 Schedule，互不干扰 |
 
+**① 本线（精确到点）— EventBridge Scheduler `at()`**
+
 ```
 创建抽选商品（Admin API）
     → 同时调用 EventBridge Scheduler CreateSchedule（重名时 Update 覆盖）
     → 指定 draw_at 时间一次性触发
-    → Lambda 执行: 随机选 winner_count 条 lottery_orders 改为 UNPAID，其余改 LOST
+    → Lambda 执行（mode=draw）: 随机选 winner_count 条 lottery_orders 改为 UNPAID，其余改 LOST
     → 触发后自动删除 Schedule
 ```
+
+**② 兜底（扫表）— EventBridge cron**
+
+一次性 Schedule 是「注册」与「配信」两段式：注册失败（IAM 权限、配额、参数错误）、配信失败、Lambda 本身失败，任一环节出错都意味着**该抽选永久不会开奖**，而管理端依旧返回成功、用户端只会看到「开奖待ち」。
+
+因此以 1 分钟周期的 cron 扫表补开奖，捞取「`draw_at` 已过但仍存在 `WAITING` 应募」的抽选（按 `draw_at` 升序，每次最多 10 件）：
+
+| 设计点 | 说明 |
+| :--- | :--- |
+| 幂等 | 开票逻辑为「先将全部 `WAITING` 置为 `LOST`，再仅将中选者覆盖为 `UNPAID`」；`WAITING` 为空时直接正常返回。重复执行结果不变 |
+| 并发安全 | `drawLottery` 内对 `lottery_items` 行加 `FOR UPDATE`，本线与扫表重叠时串行化，后到者检测到 `WAITING` 已空即正常返回 |
+| 失败不阻断 | 单件开奖失败仅记日志并继续处理其余，失败件保留 `WAITING` 状态，下一轮自动重试 |
+| 为何用 Rules 而非 Scheduler | Lambda 位于私有子网（无 NAT），由 EventBridge Rules 主动调用 Lambda 可避免 Lambda 出公网，与 §6.1 的扫表同构 |
 
 ### 6.3 部署形态汇总
 
 | 任务 | 部署形态 | 说明 |
 | :--- | :--- | :--- |
 | 订单超时取消 + 库存回补 | **EventBridge `at()` 精确取消（仅秒杀）+ cron 扫表（全量兜底）+ Lambda**（`order_expirer`） | ① 秒杀按 `at(expires_at)` 逐单取消（即时回补库存）；② 抽选中选单与 ① 的漏配订单由 cron 每分钟扫表回收；两类触发共用同一 Lambda，靠 `mode` 分发 |
-| 抽选开奖 | **EventBridge `at()` + Lambda** | 按 draw_at 一次性触发，批处理，无常驻进程 |
+| 抽选开奖 | **EventBridge `at()` 精确开票 + cron 扫表兜底 + Lambda**（`lottery_drawer`） | ① 按 `draw_at` 一次性触发指定抽选（即时开票）；② 上一行失败时的漏网抽选由 cron 每分钟扫表回收；两类触发共用同一 Lambda，靠 `mode` 分发 |
 
 ---
 

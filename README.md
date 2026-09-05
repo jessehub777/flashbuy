@@ -145,7 +145,7 @@ flowchart TB
       ├─ 在庫なし → 「売り切れ」を返却
       └─ 成功 → 継続
    ③ トランザクションで注文作成 (UNPAID, expires_at = now + 15min) + DB 在庫 -1
-   ④ at(expires_at) ワンタイム Schedule を登録（失敗時はログのみ、cron で兜底）
+   ④ at(expires_at) ワンタイム Schedule を登録（失敗時はログのみ、cron がバックアップ）
    ⑤ レスポンス { orderId, status: "QUEUED" } を返却
 ```
 
@@ -279,20 +279,35 @@ flashbuy/
 | 実行時間が短い | `lottery_orders` から N件をランダム抽出するだけ。数秒で完了し、Lambda 15分上限に余裕 |
 | 商品ごとに独立スケジュール | 抽選商品を作成するたびに一回限りの Schedule を登録し、互いに干渉しない |
 
+**① 本線（時刻ぴったり）— EventBridge Scheduler `at()`**
+
 ```
 抽選商品の作成（Admin API）
     → 同時に EventBridge Scheduler CreateSchedule を呼ぶ（重複時は Update で上書き）
     → draw_at 時刻に一回だけトリガー
-    → Lambda 実行: winner_count 件の lottery_orders を UNPAID に、残りを LOST に更新
+    → Lambda 実行（mode=draw）: winner_count 件の lottery_orders を UNPAID に、残りを LOST に更新
     → トリガー後、Schedule を自動削除
 ```
+
+**② バックアップ（スキャン）— EventBridge cron**
+
+一回限りの Schedule は「登録」と「配信」の二段構えである。登録失敗（IAM 権限・クォータ・パラメータ不備）、配信失敗、Lambda 自体の失敗——どこか一箇所でも崩れれば**その抽選は永久に開票されない**。しかも管理画面は成功を返し、ユーザーには「開票待ち」が表示され続ける。
+
+そこで毎分の cron スキャンで開票を補完する。対象は「`draw_at` を過ぎても `WAITING` の応募が残る抽選」（`draw_at` 昇順、1回最大10件）:
+
+| 設計点 | 説明 |
+| :--- | :--- |
+| 冪等 | 開票は「全 `WAITING` を一旦 `LOST` にし、当選者のみ `UNPAID` で上書き」する二段階。`WAITING` が残っていなければ何もせず正常終了するため、二重実行でも結果は変わらない |
+| 並行安全 | `drawLottery` 内で `lottery_items` の行に `FOR UPDATE` をかける。本線とスキャンが重なっても直列化され、後からロックを得た側は `WAITING` が空であることを検出して正常終了する |
+| 失敗は波及させない | 1件の開票失敗はログのみで残りを続行。失敗分は `WAITING` のままなので次回スキャンで自動的に再挑戦される |
+| Scheduler ではなく Rules を使う理由 | Lambda はプライベートサブネット（NAT 無し）に置くため、EventBridge Rules 側から Lambda を呼ぶ形にして外向き通信を不要にしている（§6.1 のスキャンと同構成） |
 
 ### 6.3 デプロイ形態まとめ
 
 | タスク | デプロイ形態 | 説明 |
 | :--- | :--- | :--- |
-| 注文タイムアウト取消 + 在庫復元 | **EventBridge `at()` 個別取消（秒殺のみ）+ cron スキャン（全件・兜底）+ Lambda**（`order_expirer`） | ① 秒殺は `at(expires_at)` で注文単位に取消（在庫を即時復元）② 抽選の当選分と①の登録漏れは cron が毎分スキャンして回収。両トリガーは同一 Lambda を `mode` で使い分け |
-| 抽選開票 | **EventBridge `at()` + Lambda** | draw_at に一回限りトリガー、バッチ処理、常駐プロセス不要 |
+| 注文タイムアウト取消 + 在庫復元 | **EventBridge `at()` 個別取消（フラッシュセールのみ）+ cron スキャン（全件・バックアップ）+ Lambda**（`order_expirer`） | ① フラッシュセールは `at(expires_at)` で注文単位に取消（在庫を即時復元）② 抽選の当選分と①の登録漏れは cron が毎分スキャンして回収。両トリガーは同一 Lambda を `mode` で使い分け |
+| 抽選開票 | **EventBridge `at()` 個別開票 + cron バックアップスキャン + Lambda**（`lottery_drawer`） | ① `draw_at` で該当抽選を1回限りトリガー（即時開票）②①の取りこぼしは cron が毎分スキャンして回収。両トリガーは同一 Lambda を `mode` で使い分け |
 
 ---
 

@@ -197,3 +197,52 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
     ]
   })
 }
+
+# ==============================================================================
+# ② スキャン（バックアップ）— EventBridge Rules の cron で定期実行
+# ==============================================================================
+# なぜ必要か:
+#   本線の at(draw_at) は「Admin API が Schedule を登録する」→「EventBridge が配信する」
+#   の2段階になっており、どちらかが失敗するとその抽選は永久に開票されない。
+#   実際に IAM 権限の ARN 誤り（schedule-group/<group> と書いていた）で
+#   全件の Schedule 登録が失敗し、開票が一切行われない事故が起きている。
+#   その際 API は warn ログだけで 200 を返すため管理画面からは気づけず、
+#   ユーザーには「開票待ち」が表示され続けた。
+#
+# なぜ EventBridge Rules（この仕組み）で、Scheduler ではないか:
+#   Lambda は private_subnet にあり NAT も VPC Endpoint も無いため、
+#   Lambda 側から AWS の API を呼ぶとハングする（Secrets Manager で過去に同事故）。
+#   Rules なら EventBridge 側が Lambda を呼びに来る形なので、Lambda からの
+#   外向き通信は不要。OrderExpirer のスキャンと同じ方式に揃えている。
+#
+# 冪等性:
+#   対象は「draw_at を過ぎても WAITING が残っている抽選」だけ。
+#   通常は0件なので何もしない。二重起動しても開票結果は変わらない
+#   （詳細は lambdas/lottery_drawer/main.go のコメント参照）。
+resource "aws_cloudwatch_event_rule" "lottery_drawer_scan" {
+  name                = "${var.project_name}-lottery-drawer-scan-${var.environment}"
+  description         = "Scan for undrawn lotteries past draw_at (fallback safety net)"
+  schedule_expression = "rate(${var.drawer_scan_minutes} minute${var.drawer_scan_minutes > 1 ? "s" : ""})"
+
+  tags = {
+    Name = "${var.project_name}-lottery-drawer-scan-${var.environment}"
+  }
+}
+
+resource "aws_cloudwatch_event_target" "lottery_drawer_scan" {
+  rule      = aws_cloudwatch_event_rule.lottery_drawer_scan.name
+  target_id = "lottery-drawer-scan"
+  arn       = aws_lambda_function.lottery_drawer.arn
+
+  # mode="scan" を渡してハンドラ側でスキャン処理に振り分ける
+  input = jsonencode({ mode = "scan" })
+}
+
+# EventBridge Rules が Lambda を呼び出す許可
+resource "aws_lambda_permission" "lottery_drawer_scan" {
+  statement_id  = "AllowExecutionFromEventBridgeScan"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lottery_drawer.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.lottery_drawer_scan.arn
+}

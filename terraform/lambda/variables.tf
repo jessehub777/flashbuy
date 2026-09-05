@@ -30,11 +30,22 @@ variable "order_expirer_zip_path" {
 
 variable "expirer_scan_minutes" {
   type        = number
-  description = "OrderExpirerのスキャン（兜底）実行間隔（分）。at()による個別取消が本線で、これは登録漏れ・失敗時の保険"
+  description = "OrderExpirerのバックアップ用スキャン実行間隔（分）。at()による個別取消が本線で、これは登録漏れ・失敗時の保険"
   default     = 1
 
   validation {
     condition     = var.expirer_scan_minutes >= 1 && var.expirer_scan_minutes <= 60
+    error_message = "スキャン間隔は1〜60分の範囲で指定してください。"
+  }
+}
+
+variable "drawer_scan_minutes" {
+  type        = number
+  description = "LotteryDrawerのバックアップ用スキャン実行間隔（分）。at(draw_at)による開票が本線で、これはSchedule登録漏れ・失敗時の保険"
+  default     = 1
+
+  validation {
+    condition     = var.drawer_scan_minutes >= 1 && var.drawer_scan_minutes <= 60
     error_message = "スキャン間隔は1〜60分の範囲で指定してください。"
   }
 }

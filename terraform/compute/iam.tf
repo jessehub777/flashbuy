@@ -67,7 +67,10 @@ resource "aws_iam_role_policy" "task" {
           "scheduler:DeleteSchedule",
           "scheduler:GetSchedule",
         ]
-        Resource = "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule-group/${data.terraform_remote_state.lambda.outputs.lottery_schedule_group_name}"
+        # Resourceは schedule 配下（schedule-group ではない）。CreateSchedule の対象 ARN は
+        # arn:aws:scheduler:<region>:<account>:schedule/<group>/<name> の形なので、ここで
+        # group配下の schedule を全て許可する。1グループ内に lottery 多数ぶら下がる
+        Resource = "arn:aws:scheduler:${var.aws_region}:${data.aws_caller_identity.current.account_id}:schedule/${data.terraform_remote_state.lambda.outputs.lottery_schedule_group_name}/*"
       },
       {
         # Schedule に実行ロールを渡すために必要

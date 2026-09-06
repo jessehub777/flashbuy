@@ -27,11 +27,12 @@ type buyFlashRequest struct {
 // BuyFlash はフラッシュセール商品を購入します
 // POST /api/v1/flash/buy（AuthRequired 必須）
 // フロー:
-//  1. 在庫をRedisでロック（Lua原子減算、未プレヒートならDBからロード）
-//  2. 注文を作成（UNPAID、expires_at=現在+15分）
-//  3. DBの在庫を1減らす
+//  1. 販売期間内か確認（開始前・終了後は購入不可）
+//  2. 在庫をRedisでロック（Lua原子減算、未プレヒートならDBからロード）
+//  3. 注文を作成（UNPAID、expires_at=現在+15分）
+//  4. DBの在庫を1減らす
 //
-// 在庫切れの場合は CodeOutOfStock を返す
+// 販売期間外・在庫切れの場合はエラーコードを返す
 func (h *FlashController) BuyFlash(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == "" {
@@ -46,7 +47,32 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		return
 	}
 
-	// 1. 在庫を1つロックする
+	// 1. 商品を取得（存在確認 + 販売期間チェック）
+	//    抽選応募（ApplyLottery）と同じ形式で、開始前・終了後は購入不可にする
+	var startsAt, endsAt time.Time
+	err := database.DB.QueryRow(
+		`SELECT starts_at, ends_at FROM flash_items WHERE id = $1`, req.SaleID,
+	).Scan(&startsAt, &endsAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			logger.Warn("フラッシュ商品が見つかりません", zap.String("saleId", req.SaleID))
+			response.Error(c, response.CodeInvalidParam)
+			return
+		}
+		logger.Error("フラッシュ商品の取得に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
+		response.Error(c, response.CodeSystemError)
+		return
+	}
+
+	// 販売期間外（開始前 or 終了後）は購入不可
+	now := time.Now()
+	if now.Before(startsAt) || now.After(endsAt) {
+		logger.Warn("販売期間外です", zap.String("saleId", req.SaleID))
+		response.Error(c, response.CodeInvalidParam)
+		return
+	}
+
+	// 2. 在庫を1つロックする
 	if err := lockStock(req.SaleID); err != nil {
 		if errors.Is(err, cache.ErrOutOfStock) {
 			response.Error(c, response.CodeOutOfStock)
@@ -62,7 +88,7 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		return
 	}
 
-	// 2. 商品価格を取得（在庫をロック済みなので、価格が取れない場合はロックを戻す）
+	// 3. 商品価格を取得（在庫をロック済みなので、価格が取れない場合はロックを戻す）
 	var price int
 	if err := database.DB.Get(&price, "SELECT price FROM flash_items WHERE id = $1", req.SaleID); err != nil {
 		logger.Error("商品価格の取得に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
@@ -71,7 +97,7 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		return
 	}
 
-	// 3. 注文作成とDB在庫の減算を同一トランザクションで行う
+	// 4. 注文作成とDB在庫の減算を同一トランザクションで行う
 	//    （どちらかが失敗したら両方ロールバックし、Redisのロックも戻す）
 	tx, err := database.DB.Beginx()
 	if err != nil {

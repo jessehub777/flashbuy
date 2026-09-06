@@ -1,6 +1,9 @@
 # CloudFront のオリジン向けIP帯のマネージドプレフィックスリスト。
-# IP帯はAWSが自動更新するため、自分でIPを管理する必要がない
-data "aws_prefix_list" "cloudfront" {
+# IP帯はAWSが自動更新するため、自分でIPを管理する必要がない。
+# 注意: 旧 data "aws_prefix_list" は古いAPIしか叩かず、このグローバル
+# リストは名前で引けない（no matching EC2 Prefix List found になる）。
+# 新API（DescribeManagedPrefixLists）に対応した data source を使うこと
+data "aws_ec2_managed_prefix_list" "cloudfront" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
 }
 
@@ -16,7 +19,7 @@ resource "aws_security_group" "alb" {
     from_port       = 80
     to_port         = 80
     protocol        = "tcp"
-    prefix_list_ids = [data.aws_prefix_list.cloudfront.id]
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {

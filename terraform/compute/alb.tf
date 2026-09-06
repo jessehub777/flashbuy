@@ -1,15 +1,22 @@
-# ALB: 外からは 80 番だけ受ける（HTTPSは証明書を取ってから）
+# CloudFront のオリジン向けIP帯のマネージドプレフィックスリスト。
+# IP帯はAWSが自動更新するため、自分でIPを管理する必要がない
+data "aws_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+# ALB: 80 番は CloudFront からのみ受ける（インターネット全体には開けない）
+# HTTPS（443 + ACM証明書）はドメイン取得後の課題
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-${var.environment}"
   description = "ALB for FlashBuy API"
   vpc_id      = data.terraform_remote_state.data.outputs.vpc_id
 
   ingress {
-    description = "HTTP from internet"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "HTTP from CloudFront only"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_prefix_list.cloudfront.id]
   }
 
   egress {

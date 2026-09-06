@@ -41,7 +41,8 @@ func TestRestoreRedisStock_NilClientIsNoop(t *testing.T) {
 
 // TestRestoreRedisStock_MissingKeyIsNoop は存在しないkeyに在庫を作らないことを確認する。
 // （単純な INCR だと key が無い場合に 1 から作られ、DBと食い違う架空の在庫が生まれる。
-//   API側の IncrStock と挙動を揃えている）
+//
+//	API側の IncrStock と挙動を揃えている）
 func TestRestoreRedisStock_MissingKeyIsNoop(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {
@@ -164,6 +165,68 @@ func TestScanSQLHasOuterGuard(t *testing.T) {
 			t.Errorf("%s: status条件はサブクエリと外側の両方に必要です（現在 %d 箇所）",
 				name, countOccurrences(q, "status = 'UNPAID'"))
 		}
+	}
+}
+
+// TestCancelSQLUsesRestoreIDAlias はRETURNINGの別名が restore_id に揃っていることを確認する。
+//
+// なぜ別名を揃えるか:
+//
+//	flash / lottery の4つのSQLを1つの関数（scanAndCancel / cancelOne）で扱うため。
+//	抽選のテーブルに flash_id 列は無いので、NULL を返して列の形だけ合わせている。
+//	意味が分かりにくいため、列名は「在庫を戻す対象」を表す restore_id に統一する。
+func TestCancelSQLUsesRestoreIDAlias(t *testing.T) {
+	cases := map[string]string{
+		"flash":         flashCancelSQL(),
+		"flash(scan)":   flashScanSQL(),
+		"lottery":       lotteryCancelSQL(),
+		"lottery(scan)": lotteryScanSQL(),
+	}
+	for name, q := range cases {
+		if !contains(q, "AS restore_id") {
+			t.Errorf("%s: RETURNING の別名が restore_id ではありません", name)
+		}
+		if !contains(name, "lottery") && !contains(q, "RETURNING flash_id AS restore_id") {
+			t.Errorf("%s: flash は在庫を戻す対象の flash_id を返す必要があります", name)
+		}
+		// 抽選は在庫を持たないため必ず NULL を返す（flash_id を返すと誤って在庫が戻る）
+		if contains(name, "lottery") && !contains(q, "NULL::uuid AS restore_id") {
+			t.Errorf("%s: 抽選は在庫を持たないため NULL を返す必要があります", name)
+		}
+	}
+}
+
+// TestSplitRestoreIDs は「件数」と「在庫を戻すID一覧」の分け方を確認する。
+//
+// これが無いと何が起きるか:
+//
+//	抽選は restore_id が NULL のため、ID一覧の長さを件数として使うと
+//	「実際には取り消せているのにログは常に0件」になる（気づけない不具合）。
+func TestSplitRestoreIDs(t *testing.T) {
+	itemA, itemB := "item-a", "item-b"
+
+	// フラッシュ: 2件取り消し、どちらも在庫を戻す
+	canceled, ids := splitRestoreIDs([]*string{&itemA, &itemB})
+	if canceled != 2 {
+		t.Errorf("件数が正しくありません: got=%d want=2", canceled)
+	}
+	if len(ids) != 2 || ids[0] != itemA || ids[1] != itemB {
+		t.Errorf("在庫を戻すIDが正しくありません: got=%v", ids)
+	}
+
+	// 抽選: 2件取り消したが在庫を戻す対象は0件（NULLのため）
+	canceled, ids = splitRestoreIDs([]*string{nil, nil})
+	if canceled != 2 {
+		t.Errorf("抽選の件数が0になっています（NULLを除外して数えてはいけません）: got=%d want=2", canceled)
+	}
+	if len(ids) != 0 {
+		t.Errorf("抽選は在庫を戻す対象が無いはずです: got=%v", ids)
+	}
+
+	// 混在（通常は起きないが、NULLの扱いが壊れていないかの保険）
+	canceled, ids = splitRestoreIDs([]*string{&itemA, nil})
+	if canceled != 2 || len(ids) != 1 {
+		t.Errorf("混在時に正しく分けられていません: canceled=%d ids=%v", canceled, ids)
 	}
 }
 

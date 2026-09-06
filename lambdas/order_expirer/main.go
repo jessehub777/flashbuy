@@ -207,15 +207,18 @@ func handleScan(ctx context.Context, db *sqlx.DB, rdb *redis.Client) error {
 		return fmt.Errorf("フラッシュ注文のスキャンに失敗しました: %w", err)
 	}
 
-	// 抽選（在庫の復元なし）
+	// 取り消せた注文の在庫を、すぐに戻す。
+	// 注：このループは抽選スキャンの「前」に置くこと。
+	// 取消UPDATEは既にDBに反映済みのため、後段でエラーになると
+	// この注文は二度とスキャン対象にならず、在庫が戻されないまま残る。
+	for _, id := range restoreIDs {
+		restoreStockBoth(ctx, db, rdb, id)
+	}
+
+	// 抽選（在庫の復元なし。枠数制のため在庫を持たない）
 	lotteryCanceled, _, err := scanAndCancel(db, lotteryScanSQL(), scanBatchSize)
 	if err != nil {
 		return fmt.Errorf("抽選注文のスキャンに失敗しました: %w", err)
-	}
-
-	// 取り消せた注文の在庫を戻す（抽選分は restore_id が NULL のため含まれない）
-	for _, id := range restoreIDs {
-		restoreStockBoth(ctx, db, rdb, id)
 	}
 
 	slog.Info("スキャンによる期限切れ処理が完了しました",

@@ -301,7 +301,14 @@ func publishResult(ctx context.Context, lotteryID string, appliedCount, winnerCo
 		"drawnAt":      time.Now().UTC().Format(time.RFC3339),
 	})
 
-	_, err = client.publish(ctx, topicArn, string(payload))
+	// このLambdaはプライベートサブネット（NATなし）で動くため、
+	// SNSへの通信が届かないとSYNが黙って捨てられ、SDKの再試行で
+	// Lambdaのタイムアウト近くまで止まってしまう（実測51秒）。
+	// 開票結果はDBに反映済みなので、SNSは3秒で諦めて警告ログだけ残す。
+	publishCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	_, err = client.publish(publishCtx, topicArn, string(payload))
 	return err
 }
 

@@ -24,3 +24,9 @@ output "ecs_service_name" {
   description = "ECSサービス名（運用時の参照用）"
   value       = aws_ecs_service.api.name
 }
+
+# api.yml（API CI/CD）の OIDC Role。GitHub の Secret に登録して使う
+output "github_actions_api_role_arn" {
+  description = "API デプロイ用 GitHub Actions Role ARN（ECR push + ECS 再デプロイのみ）"
+  value       = aws_iam_role.github_actions_api_dev.arn
+}

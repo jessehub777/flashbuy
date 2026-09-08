@@ -5,7 +5,7 @@ output "images_bucket_name" {
 
 output "images_bucket_region" {
   description = "バケットのリージョン"
-  value        = "ap-northeast-1"
+  value       = "ap-northeast-1"
 }
 
 output "images_bucket_public_base" {

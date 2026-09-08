@@ -164,7 +164,7 @@ resource "aws_security_group" "redis" {
 # RDS PostgreSQL（実務派: provisioned 小規模 / 無料枠内）
 # ==============================================================================
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.project_name}-db-subnet-${var.environment}"
+  name = "${var.project_name}-db-subnet-${var.environment}"
   # 開発フェーズ: ローカルから直接接続するため公表サブネットに配置する。
   # 接続は SG の allowed_admin_cidrs（開発端末IP）で制限する。
   # 本番運用時は private サブネット + NAT に変更し、ECSからのみ接続する。
@@ -177,8 +177,8 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "postgres" {
-  identifier     = "${var.project_name}-postgres-${var.environment}"
-  engine         = "postgres"
+  identifier = "${var.project_name}-postgres-${var.environment}"
+  engine     = "postgres"
   # 大版本のみ指定し、AWS側で最新の小バージョンを選択させる（小バージョンEOLでのapply失敗を防ぐ）
   engine_version = "15"
 

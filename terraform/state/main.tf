@@ -8,9 +8,9 @@ resource "aws_s3_bucket" "terraform_state" {
   bucket = "flashbuy-terraform-state"
 
   tags = {
-    Name        = "flashbuy-terraform-state"
-    Project     = "FlashBuy"
-    ManagedBy   = "Terraform"
+    Name      = "flashbuy-terraform-state"
+    Project   = "FlashBuy"
+    ManagedBy = "Terraform"
   }
 }
 
@@ -55,8 +55,8 @@ resource "aws_dynamodb_table" "terraform_lock" {
   }
 
   tags = {
-    Name        = "flashbuy-terraform-lock"
-    Project     = "FlashBuy"
-    ManagedBy   = "Terraform"
+    Name      = "flashbuy-terraform-lock"
+    Project   = "FlashBuy"
+    ManagedBy = "Terraform"
   }
 }

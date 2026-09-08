@@ -1,0 +1,122 @@
+# ==============================================================================
+# API CI/CD（Go バックエンド）
+#
+# - PR / push: go build + vet + test
+# - develop への push: ECR へイメージ push → ECS ローリングデプロイ
+#
+# イメージは latest とコミットSHA の両方のタグを付ける。
+# SHA タグはロールバック用（昔のSHAのイメージに latest を付け直して再デプロイする）。
+# ==============================================================================
+
+name: API CI/CD
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'api/**'
+      - '.github/workflows/api.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'api/**'
+      - '.github/workflows/api.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # ビルドとテスト（認証情報なし）
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+  # ---------------------------------------------------------------------------
+  # デプロイ（develop への push のみ。ECR push → ECS のタスク入れ替え）
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-northeast-1
+      ECS_CLUSTER: flashbuy-cluster-dev
+      ECS_SERVICE: flashbuy-api-dev
+      ECR_REPOSITORY: flashbuy-api-dev
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dockerfile は config-prod.yaml を COPY する。
+      # 中身は ECS の環境変数で上書きされるため、雛形をコピーするだけでよい
+      - name: Prepare config file
+        run: cp api/config-prod.yaml.example api/config-prod.yaml
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_API_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ランナーは amd64、イメージは arm64。
+      # ランタイムステージの apk add を動かすのに QEMU によるエミュレーションが必要
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
+            -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            --push api/
+
+      - name: Deploy to ECS
+        run: |
+          # タスク定義は :latest を参照しているため、イメージを push してから
+          # 強制的に新しいタスクを起動すれば、新しいイメージがデプロイされる
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment
+
+          # デプロイが安定するまで待つ（ヘルスチェック失敗ならここで job が落ちる）
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"

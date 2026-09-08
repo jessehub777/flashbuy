@@ -1,0 +1,125 @@
+# ==============================================================================
+# Terraform CI
+#
+# PR のみで実行する（merge 後に再度 fmt/validate しても意味が薄いため）。
+#
+# - fmt:   フォーマットチェック（認証情報なし）
+# - plan:  モジュールごとに init → validate → plan
+#
+# plan は「変更がある」ことも正常なので、-detailed-exitcode の exit 2 は
+# 失敗にしない（exit 0 = 変更なし / 1 = エラー / 2 = 変更あり）。
+# apply は CI からは実行しない。人が確認して手動で実行する運用。
+# ==============================================================================
+
+name: Terraform CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # ローカルの terraform バージョンと揃える
+  TF_VERSION: 1.15.8
+  AWS_REGION: ap-northeast-1
+  # data / lambda / compute モジュールの必須変数（tfvars は git に無いので Secret から渡す）
+  TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # フォーマットチェック（認証情報なし・高速）
+  # ---------------------------------------------------------------------------
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Check format
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+  # ---------------------------------------------------------------------------
+  # モジュールごとの validate + plan
+  #（state モジュールは local backend の bootstrap で一度しか使わないため除外）
+  # ---------------------------------------------------------------------------
+  plan:
+    name: plan (${{ matrix.module }})
+    needs: fmt
+    # フォークからのPRではAWS認証を渡さない。
+    # 公開リポジトリでは、フォークPRのworkflow定義はPR側のものが使われるため、
+    # 外部コントリビューターがworkflowを書き換えてOIDCの権限を奪えてしまう。
+    # （planロールはstateバケットも読める＝tfstateに平文パスワードが入っている）
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [shared, data, auth, storage, lambda, compute, frontend]
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # lambda モジュールは zip のハッシュ（source_code_hash）を参照するため、
+      # plan の前に zip をビルドしておく必要がある
+      - if: matrix.module == 'lambda'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            lambdas/lottery_drawer/go.sum
+            lambdas/order_expirer/go.sum
+
+      - if: matrix.module == 'lambda'
+        name: Build lambda zips
+        run: |
+          bash ../../lambdas/lottery_drawer/build.sh
+          bash ../../lambdas/order_expirer/build.sh
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_TF_PLAN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # terraform_wrapper は出力を書き換えるため、exit code を使うなら無効にする
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init
+        run: terraform init -input=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::notice title=plan (${{ matrix.module }})::変更があります。plan のログを確認してください"
+            exit 0
+          fi
+          exit "$code"

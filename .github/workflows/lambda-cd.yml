@@ -1,0 +1,167 @@
+# ==============================================================================
+# Lambda CD（タグ push で自動デプロイ）
+#
+# v1.2.3 のようなタグを push すると起動する。API（api-cd.yml）と同じタグで
+# 同時にリリースされる ＝ 1 つのタグがシステム全体のバージョンになる。
+#
+# やること:
+#   1. 各 lambda の build.sh（中で go test も実行）で zip を作る
+#   2. update-function-code でコードを差し替え（$LATEST を更新）
+#   3. publish-version でバージョンを発行
+#   4. エイリアス live を新バージョンへ切り替え
+#
+# トリガー（EventBridge Scheduler / Rules）は関数ではなく **エイリアス live** を
+# 呼んでいるため、ロールバックはエイリアスの向き先を戻すだけでよい:
+#   aws lambda update-alias --function-name <名前> --name live --function-version <旧バージョン>
+# ==============================================================================
+
+name: Lambda CD
+
+# 前提（初回のみ）:
+#   1. terraform を shared → lambda の順に apply（OIDC Provider は shared が作る）
+#   2. GitHub Secrets に AWS_ROLE_ARN_LAMBDA_DEV を登録
+#      （値は terraform/lambda の output github_actions_lambda_role_arn）
+#   3. terraform/lambda を apply 済みであること（エイリアス live が必要）
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# リリースは「直列化」する（group に ref を含めない）。
+# 並行すると別タグのリリースが交錯し、どちらが最終状態か分からなくなる。
+# リリースは途中でキャンセルしない
+concurrency:
+  group: lambda-cd
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # ビルドとテスト（ここが落ちたらデプロイしない）
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # リリースタグは「main 上のコミット」にだけ打てる、という運用を機械的に守らせる
+      - name: Check the tag is on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STATUS=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.status')
+          echo "main との比較結果: $STATUS"
+          case "$STATUS" in
+            behind|identical) echo "OK: タグは main 上のコミットを指しています" ;;
+            *) echo "::error::タグが main 上のコミットを指していません（status=$STATUS）"
+               exit 1 ;;
+          esac
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            lambdas/lottery_drawer/go.sum
+            lambdas/order_expirer/go.sum
+
+      # build.sh の中で go test ./... も実行される
+      - name: Build zips
+        run: |
+          bash lambdas/lottery_drawer/build.sh
+          bash lambdas/order_expirer/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zips
+          path: |
+            lambdas/lottery_drawer/dist/lottery_drawer.zip
+            lambdas/order_expirer/dist/order_expirer.zip
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # デプロイ（コード更新 → バージョン発行 → エイリアス切り替え）
+  # ---------------------------------------------------------------------------
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # artifact は最小共通祖先（lambdas/）をルートに展開されるため
+      # ./lottery_drawer/dist/lottery_drawer.zip になる
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-zips
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_LAMBDA_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy and switch alias (lottery_drawer)
+        run: |
+          FN=flashbuy-lottery-drawer-dev
+
+          aws lambda update-function-code \
+            --function-name "$FN" \
+            --zip-file fileb://lottery_drawer/dist/lottery_drawer.zip
+
+          # 更新が反映されるまで待つ（待たずに publish すると古いコードが発行される）
+          aws lambda wait function-updated --function-name "$FN"
+
+          VERSION=$(aws lambda publish-version --function-name "$FN" \
+            --query 'Version' --output text)
+          echo "発行したバージョン: $VERSION"
+
+          aws lambda update-alias \
+            --function-name "$FN" \
+            --name live \
+            --function-version "$VERSION"
+
+          # エイリアスが本当に切り替わったか確認する（切替漏れを成功扱いにしない）
+          LIVE=$(aws lambda get-alias --function-name "$FN" --name live \
+            --query 'FunctionVersion' --output text)
+          if [ "$LIVE" != "$VERSION" ]; then
+            echo "::error::エイリアスが切り替わっていません: live=$LIVE / published=$VERSION"
+            exit 1
+          fi
+          echo "エイリアス確認OK: live -> $VERSION"
+
+      - name: Deploy and switch alias (order_expirer)
+        run: |
+          FN=flashbuy-order-expirer-dev
+
+          aws lambda update-function-code \
+            --function-name "$FN" \
+            --zip-file fileb://order_expirer/dist/order_expirer.zip
+
+          aws lambda wait function-updated --function-name "$FN"
+
+          VERSION=$(aws lambda publish-version --function-name "$FN" \
+            --query 'Version' --output text)
+          echo "発行したバージョン: $VERSION"
+
+          aws lambda update-alias \
+            --function-name "$FN" \
+            --name live \
+            --function-version "$VERSION"
+
+          # エイリアスが本当に切り替わったか確認する（切替漏れを成功扱いにしない）
+          LIVE=$(aws lambda get-alias --function-name "$FN" --name live \
+            --query 'FunctionVersion' --output text)
+          if [ "$LIVE" != "$VERSION" ]; then
+            echo "::error::エイリアスが切り替わっていません: live=$LIVE / published=$VERSION"
+            exit 1
+          fi
+          echo "エイリアス確認OK: live -> $VERSION"

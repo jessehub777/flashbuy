@@ -1,8 +1,9 @@
 # ==============================================================================
-# GitHub Actions 用 IAM Role（API デプロイ / api.yml が使用）
+# GitHub Actions 用 IAM Role（API のイメージ push とリリース / api-ci.yml・api-cd.yml が使用）
 #
-# 役割: ECR へのイメージ push + ECS サービスの再デプロイのみ。
-#       タスク定義や IAM の変更は含めない（Terraform 側で管理するため）。
+# 役割: ECR へのイメージ push と、「v* タグの push」で起動するリリース
+#       （新しいタスク定義リビジョンの登録 → サービスの差し替え）のみ。
+#       terraform apply やインフラの変更権限は与えない。
 # ==============================================================================
 
 data "aws_iam_openid_connect_provider" "github" {
@@ -59,13 +60,39 @@ resource "aws_iam_role_policy" "github_actions_api_dev" {
         Resource = [aws_ecr_repository.api.arn]
       },
       {
-        # デプロイ = 新イメージでのタスク入れ替え。安定待ちの Describe も許可
+        # タグリリース時に新しいリビジョンを登録する。対象は API のタスク定義のみ
+        #（:リビジョン無しの ARN と :* の両方を書くのは、ファミリー名だけの
+        #  Describe と、リビジョン指定の Register の両方に一致させるため）
+        Effect = "Allow"
+        Action = [
+          "ecs:RegisterTaskDefinition",
+          "ecs:DescribeTaskDefinition"
+        ]
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-api-${var.environment}",
+          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-api-${var.environment}:*"
+        ]
+      },
+      {
+        # サービスを新リビジョンに差し替える（対象は API サービスのみ）
         Effect = "Allow"
         Action = [
           "ecs:UpdateService",
           "ecs:DescribeServices"
         ]
         Resource = [aws_ecs_service.api.arn]
+      },
+      {
+        # 登録するリビジョンに既存のタスクロールを渡すため（PassRole）。
+        # ECS タスクにしか渡せないよう条件を付ける
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = [aws_iam_role.execution.arn, aws_iam_role.task.arn]
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
       }
     ]
   })

@@ -25,8 +25,11 @@ resource "aws_ecs_task_definition" "api" {
 
   container_definitions = jsonencode([
     {
-      name      = "api"
-      image     = "${aws_ecr_repository.api.repository_url}:latest"
+      name = "api"
+      # ここは terraform がタスク定義を登録するとき（初回・環境変数変更時）に使う値。
+      # 通常のリリースは CI がバージョンタグ（例: v1.2.3）付きのリビジョンを登録するため、
+      # 実際に動くリビジョンのイメージはそちらを参照する
+      image     = "${aws_ecr_repository.api.repository_url}:${var.image_tag}"
       essential = true
 
       portMappings = [
@@ -79,6 +82,13 @@ resource "aws_ecs_service" "api" {
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
 
+  # 新しいタスクがヘルスチェックに通らないまま一定回数失敗したら、
+  # 自動で前のリビジョンに戻す（手で戻す運用をなくす）
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
   # 1台目は通常料金で安定させ、増えた分だけ Spot に寄せる。1台の間は Spot に乗らない
   capacity_provider_strategy {
     capacity_provider = "FARGATE"
@@ -104,4 +114,12 @@ resource "aws_ecs_service" "api" {
   }
 
   health_check_grace_period_seconds = 30
+
+  lifecycle {
+    # サービスのタスク定義リビジョンは CI（v* タグのリリース）が差し替える。
+    # terraform 側で追跡すると「CI が入れたリビジョンに戻す」差分が毎回出るため無視する。
+    # なお環境変数を変更した場合は、terraform が新リビジョンを登録したうえで
+    # 次のリリース（タグ push）でサービスに反映される
+    ignore_changes = [task_definition]
+  }
 }

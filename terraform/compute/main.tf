@@ -49,6 +49,14 @@ resource "aws_ecr_repository" "api" {
 }
 
 # 古いイメージは最新10個だけ残す
+# ECR のライフサイクル: 新しい方から 5 件だけ残す。
+#
+# ECR に置くのはリリース（v* タグ）のイメージだけ。develop の CI（api-ci.yml）は
+# ビルド検証のみで push しないため、「最新 5 件」= 「直近 5 リリース」になる。
+# ロールバックはその範囲で十分（それより古い版に戻すことは想定していない）。
+#
+# 注意: tagStatus = "tagged" のルールには tagPrefixList / tagPatternList が必須。
+# タグを区別しない場合は "any" を使う（付け忘れると apply が失敗する）。
 resource "aws_ecr_lifecycle_policy" "api" {
   repository = aws_ecr_repository.api.name
 
@@ -56,11 +64,11 @@ resource "aws_ecr_lifecycle_policy" "api" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep last 10 images"
+        description  = "最新 5 件（= 直近 5 リリース）だけ残す"
         selection = {
           tagStatus   = "any"
           countType   = "imageCountMoreThan"
-          countNumber = 10
+          countNumber = 5
         }
         action = { type = "expire" }
       }

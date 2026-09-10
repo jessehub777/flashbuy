@@ -1,7 +1,7 @@
 # Admin API の設定（config-dev.yaml）に転記する値
 output "lottery_drawer_function_arn" {
   description = "LotteryDrawer Lambda の ARN（Admin API の scheduler 設定に使う）"
-  value       = aws_lambda_function.lottery_drawer.arn
+  value       = aws_lambda_alias.lottery_drawer.arn
 }
 
 output "lottery_schedule_group_name" {
@@ -22,7 +22,7 @@ output "lottery_drawn_topic_arn" {
 # ===== OrderExpirer（期限切れ注文の取消）=====
 output "order_expirer_function_arn" {
   description = "OrderExpirer Lambda の ARN（API が at() Schedule を登録する際のターゲット）"
-  value       = aws_lambda_function.order_expirer.arn
+  value       = aws_lambda_alias.order_expirer.arn
 }
 
 output "order_expirer_schedule_group_name" {
@@ -30,7 +30,7 @@ output "order_expirer_schedule_group_name" {
   value       = aws_scheduler_schedule_group.lottery.name
 }
 
-# lambdas.yml（Lambdas CI/CD）の OIDC Role。GitHub の Secret に登録して使う
+# lambda-cd.yml（Lambda CD）の OIDC Role。GitHub の Secret に登録して使う
 output "github_actions_lambda_role_arn" {
   description = "Lambda デプロイ用 GitHub Actions Role ARN（関数コードの更新のみ）"
   value       = aws_iam_role.github_actions_lambda_dev.arn

@@ -9,6 +9,12 @@
 # plan は「変更がある」ことも正常なので、-detailed-exitcode の exit 2 は
 # 失敗にしない（exit 0 = 変更なし / 1 = エラー / 2 = 変更あり）。
 # apply は CI からは実行しない。人が確認して手動で実行する運用。
+#
+# 前提（初回のみ）:
+#   1. terraform/shared を apply（OIDC Provider とこのロールを作る）
+#   2. GitHub Secrets に以下を登録
+#      - AWS_ROLE_ARN_TF_PLAN（shared の output github_actions_terraform_plan_role_arn）
+#      - TF_VAR_DB_PASSWORD（plan に必要。値は terraform.tfvars の db_password）
 # ==============================================================================
 
 name: Terraform CI

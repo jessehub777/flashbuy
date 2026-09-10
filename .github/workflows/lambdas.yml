@@ -3,6 +3,11 @@
 #
 # - PR / push: build.sh（中で go test も走る）→ zip を artifact に保存
 # - develop への push: zip を Lambda へアップロードしてコードを更新
+#
+# 前提（初回のみ）:
+#   1. terraform を shared → lambda の順に apply（OIDC Provider は shared が作る）
+#   2. GitHub Secrets に AWS_ROLE_ARN_LAMBDA_DEV を登録
+#      （値は terraform/lambda の output github_actions_lambda_role_arn）
 # ==============================================================================
 
 name: Lambdas CI/CD

@@ -9,9 +9,9 @@
 #       （terraform.yml の plan ジョブの if を参照。公開リポジトリでは必須）。
 # ==============================================================================
 
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
+# このモジュール自身が OIDC Provider を作る（main.tf）ため、data source ではなく
+# その resource を直接参照する。data source にすると新規アカウントでの初回 apply 時に
+# 「まだ存在しない」を読もうとして plan が失敗するため
 
 resource "aws_iam_role" "github_actions_terraform_plan" {
   name = "github-actions-terraform-plan-dev-role"
@@ -22,7 +22,7 @@ resource "aws_iam_role" "github_actions_terraform_plan" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Effect = "Allow"
         Principal = {
-          Federated = data.aws_iam_openid_connect_provider.github.arn
+          Federated = aws_iam_openid_connect_provider.github.arn
         }
         Condition = {
           StringEquals = {

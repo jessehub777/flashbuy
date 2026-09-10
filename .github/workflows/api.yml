@@ -6,6 +6,11 @@
 #
 # イメージは latest とコミットSHA の両方のタグを付ける。
 # SHA タグはロールバック用（昔のSHAのイメージに latest を付け直して再デプロイする）。
+#
+# 前提（初回のみ）:
+#   1. terraform を shared → compute の順に apply（OIDC Provider は shared が作る）
+#   2. GitHub Secrets に AWS_ROLE_ARN_API_DEV を登録
+#      （値は terraform/compute の output github_actions_api_role_arn）
 # ==============================================================================
 
 name: API CI/CD
@@ -107,6 +112,9 @@ jobs:
             -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
             --push api/
 
+      # タスク定義は terraform が管理しているため、CI から
+      # register-task-definition はしない（やると次回の terraform apply で
+      # 巻き戻される）。イメージの中身だけ差し替えるのが正しい分担
       - name: Deploy to ECS
         run: |
           # タスク定義は :latest を参照しているため、イメージを push してから

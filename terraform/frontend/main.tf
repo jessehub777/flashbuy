@@ -37,4 +37,11 @@ module "prod_hosting" {
   bucket_name       = "flashbuy-frontend-prod-${data.aws_caller_identity.current.account_id}"
   enable_versioning = true
   force_destroy     = false
+
+  # PoC の割り切り: バックエンド（ECS / Lambda / RDS）は dev の1系統だけ。
+  # prod 用にもう一式を作るのはコストに見合わないため、prod の画面からも
+  # dev の API を呼ぶ。CloudFront の origin-facing IP 帯は dev/prod 共通なので
+  # ALB の SG（CloudFront プレフィックスリスト限定）はそのまま通る。
+  # 本番化するときは各モジュールを環境ごとに分割し、ここを prod の ALB に差し替える
+  api_origin_domain = data.terraform_remote_state.compute.outputs.alb_dns_name
 }

@@ -36,6 +36,8 @@ resource "aws_iam_role" "github_actions_terraform_plan" {
   })
 }
 
+data "aws_caller_identity" "current" {}
+
 # 読み取りは AWS 管理ポリシーに任せる（自分で書くと管理が大変なため）
 resource "aws_iam_role_policy_attachment" "github_actions_terraform_plan_readonly" {
   role       = aws_iam_role.github_actions_terraform_plan.name
@@ -69,6 +71,24 @@ resource "aws_iam_role_policy" "github_actions_terraform_plan_state" {
         Effect   = "Allow"
         Action   = ["s3:PutObject", "s3:DeleteObject"]
         Resource = ["arn:aws:s3:::flashbuy-terraform-state/*.tflock"]
+      }
+    ]
+  })
+}
+
+# compute モジュールの plan は、aws_secretsmanager_secret_version の差分判定のために
+# Secrets Manager の現在値を読む。ReadOnlyAccess には secretsmanager:GetSecretValue
+# が含まれないため、この Secret だけに絞って追加で許可する
+resource "aws_iam_role_policy" "github_actions_terraform_plan_secret" {
+  name = "github-actions-terraform-plan-secret-policy"
+  role = aws_iam_role.github_actions_terraform_plan.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = ["arn:aws:secretsmanager:ap-northeast-1:${data.aws_caller_identity.current.account_id}:secret:flashbuy/db-password/dev-*"]
       }
     ]
   })

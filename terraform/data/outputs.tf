@@ -7,6 +7,11 @@ output "private_subnet_ids" {
   value       = aws_subnet.private[*].id
 }
 
+output "public_subnet_ids" {
+  description = "パブリックサブネットのID一覧（ALB配置用。computeモジュールが参照する）"
+  value       = aws_subnet.public[*].id
+}
+
 output "db_name" {
   description = "RDSのデータベース名"
   value       = aws_db_instance.postgres.db_name

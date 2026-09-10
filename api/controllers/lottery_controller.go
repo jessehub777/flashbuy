@@ -37,6 +37,11 @@ func (h *LotteryController) GetLotteryList(c *gin.Context) {
 		return
 	}
 
+	// 0件のときも [] を返す（nil のままだと JSON が null になり、フロント側のエラーになるため）
+	if lotteryList == nil {
+		lotteryList = []models.LotteryItem{}
+	}
+
 	response.Success(c, gin.H{
 		"lotteryList": lotteryList,
 	})

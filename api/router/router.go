@@ -6,6 +6,7 @@ import (
 	"flashbuy/api/controllers"
 	"flashbuy/api/middleware"
 	"flashbuy/api/pkg/auth"
+	"flashbuy/api/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +21,16 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 	}
 
 	r := gin.Default()
+
+	// 存在しないパスは HTTP 200 + body の code で返す。
+	// CloudFront が 403/404 を index.html に差し替えるため、HTTP 404 のままだと
+	// /api/* の誤りまで HTML が返りフロントの JSON 解析が壊れる。5xx（ALB 側）は対象外
+	r.NoRoute(func(c *gin.Context) {
+		response.Error(c, response.CodeInvalidParam)
+	})
+	r.NoMethod(func(c *gin.Context) {
+		response.Error(c, response.CodeInvalidParam)
+	})
 
 	// ヘルスチェック用エンドポイント
 	r.GET("/ping", func(c *gin.Context) {

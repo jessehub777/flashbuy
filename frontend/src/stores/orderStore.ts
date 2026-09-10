@@ -50,8 +50,13 @@ export const useOrderStore = create<OrderState>((set, get) => ({
       } else {
         set({ buyStatus: 'sold_out' })
       }
-    } catch {
-      set({ buyStatus: 'error' })
+    } catch (e) {
+      // 売り切れ（10001）は「エラー」ではなく専用の sold_out 画面を出す
+      if (e instanceof ApiError && e.code === 10001) {
+        set({ buyStatus: 'sold_out' })
+      } else {
+        set({ buyStatus: 'error' })
+      }
     }
   },
 

@@ -75,7 +75,7 @@ func SetJSON(key string, value any, ttl time.Duration) error {
 // データ更新時に呼び出すこと。
 // 例:
 //   - adminが商品を新規作成/編集した場合 → cache.Del(cache.KeyFlashList, cache.KeyHomeTop10)
-//   - 秒殺で在庫が変動した場合 → cache.Del(cache.KeyFlashList, cache.KeyHomeTop10)
+//   - フラッシュセールで在庫が変動した場合 → cache.Del(cache.KeyFlashList, cache.KeyHomeTop10)
 //   - 抽選で結果が変動した場合 → cache.Del(cache.KeyLotteryList)
 func Del(keys ...string) error {
 	if len(keys) == 0 {

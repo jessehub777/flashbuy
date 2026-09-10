@@ -3,7 +3,7 @@
 #
 # 2系統のトリガーを持つ（詳細は lambdas/order_expirer/main.go のコメント参照）:
 #   1. at()   — APIが注文作成時に expires_at 時刻でワンタイムSchedule登録（本線・遅延なし）
-#   2. cron   — EventBridge Rules による定期スキャン（兜底・登録漏れ/失敗の回収）
+#   2. cron   — EventBridge Rules による定期スキャン（バックアップ・登録漏れ/失敗の回収）
 #
 # いずれもSQL側で status='UNPAID' + 期限超過 を条件にしており冪等。
 # ==============================================================================
@@ -128,7 +128,7 @@ resource "aws_lambda_function" "order_expirer" {
 # （抽選の支払期限は72時間あり、1分程度の遅延は問題にならない）。
 
 # ==============================================================================
-# ② スキャン（兜底）— EventBridge Rules の cron で定期実行
+# ② スキャン（バックアップ）— EventBridge Rules の cron で定期実行
 # ==============================================================================
 resource "aws_cloudwatch_event_rule" "order_expirer_scan" {
   name                = "${var.project_name}-order-expirer-scan-${var.environment}"

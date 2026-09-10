@@ -1,0 +1,105 @@
+# ==============================================================================
+# Lambdas CI/CD（lottery_drawer / order_expirer）
+#
+# - PR / push: build.sh（中で go test も走る）→ zip を artifact に保存
+# - develop への push: zip を Lambda へアップロードしてコードを更新
+#
+# 前提（初回のみ）:
+#   1. terraform を shared → lambda の順に apply（OIDC Provider は shared が作る）
+#   2. GitHub Secrets に AWS_ROLE_ARN_LAMBDA_DEV を登録
+#      （値は terraform/lambda の output github_actions_lambda_role_arn）
+# ==============================================================================
+
+name: Lambdas CI/CD
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/lambdas.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/lambdas.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lambdas-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # ビルドとテスト（認証情報なし）
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            lambdas/lottery_drawer/go.sum
+            lambdas/order_expirer/go.sum
+
+      # build.sh の中で go test ./... も実行される
+      - name: Build lottery_drawer
+        run: bash lambdas/lottery_drawer/build.sh
+
+      - name: Build order_expirer
+        run: bash lambdas/order_expirer/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lambda-zips
+          path: |
+            lambdas/lottery_drawer/dist/lottery_drawer.zip
+            lambdas/order_expirer/dist/order_expirer.zip
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # デプロイ（develop への push のみ。zip を Lambda にアップロード）
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ap-northeast-1
+    steps:
+      # 複数パスを upload-artifact に渡すと、全パスの最小共通祖先が
+      # artifact のルートになり、その下のディレクトリ構造は保持される。
+      # この場合のルートは lambdas/ なので、展開後は
+      # ./lottery_drawer/dist/lottery_drawer.zip になる（./lottery_drawer.zip ではない）
+      - uses: actions/download-artifact@v4
+        with:
+          name: lambda-zips
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_LAMBDA_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy lottery_drawer
+        run: |
+          aws lambda update-function-code \
+            --function-name flashbuy-lottery-drawer-dev \
+            --zip-file fileb://lottery_drawer/dist/lottery_drawer.zip
+
+      - name: Deploy order_expirer
+        run: |
+          aws lambda update-function-code \
+            --function-name flashbuy-order-expirer-dev \
+            --zip-file fileb://order_expirer/dist/order_expirer.zip

@@ -29,3 +29,9 @@ output "order_expirer_schedule_group_name" {
   description = "注文期限切れ用 Schedule Group 名（抽選と同じグループを共有）"
   value       = aws_scheduler_schedule_group.lottery.name
 }
+
+# lambdas.yml（Lambdas CI/CD）の OIDC Role。GitHub の Secret に登録して使う
+output "github_actions_lambda_role_arn" {
+  description = "Lambda デプロイ用 GitHub Actions Role ARN（関数コードの更新のみ）"
+  value       = aws_iam_role.github_actions_lambda_dev.arn
+}

@@ -5,6 +5,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,16 +85,34 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 			Input:   &input,
 		},
 	})
+	if err != nil && isConflict(err) {
+		// 同じ名前がある場合は上書きする
+		_, err = client.UpdateSchedule(context.TODO(), &scheduler.UpdateScheduleInput{
+			Name:               &name,
+			GroupName:          &groupName,
+			Description:        ptr("抽選開票（作成時に自動登録。実行後に自動削除）"),
+			ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
+			FlexibleTimeWindow: &types.FlexibleTimeWindow{
+				Mode: types.FlexibleTimeWindowModeOff,
+			},
+			ActionAfterCompletion: types.ActionAfterCompletionDelete,
+			Target: &types.Target{
+				Arn:     &arn,
+				RoleArn: &roleArn,
+				Input:   &input,
+			},
+		})
+	}
 	return err
 }
 
 // RegisterExpireSchedule は注文の支払期限切れ取消用ワンタイムScheduleを登録します。
 //
-// 購入（秒殺）・当選（抽選）のそれぞれで支払期限が確定した時点で呼び出し、
+// 購入（フラッシュセール）・当選（抽選）のそれぞれで支払期限が確定した時点で呼び出し、
 // 期限到来時に OrderExpirer Lambda を1件だけ対象に呼び出させます（遅延なしで在庫が戻る）。
 //
 // 取りこぼし（登録失敗・Lambda失敗）に備え、OrderExpirer 側には cron による
-// スキャン兜底も別途用意しているため、ここでの登録失敗はエラーにせずログのみ残します
+// バックアップの定期スキャンも別途用意しているため、ここでの登録失敗はエラーにせずログのみ残します
 // （呼び出し側で warn ログを出して処理を継続する）。
 //
 // Schedule名は orderID から一意に決まるため、重複登録は上書きになります。
@@ -134,7 +153,30 @@ func RegisterExpireSchedule(orderType, orderID string, expiresAt time.Time) erro
 			Input:   &input,
 		},
 	})
+	if err != nil && isConflict(err) {
+		// 同じ名前がある場合は上書きする
+		_, err = client.UpdateSchedule(context.TODO(), &scheduler.UpdateScheduleInput{
+			Name:               &name,
+			GroupName:          &groupName,
+			Description:        ptr("未払い注文の期限切れ取消（作成時に自動登録。実行後に自動削除）"),
+			ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
+			FlexibleTimeWindow: &types.FlexibleTimeWindow{
+				Mode: types.FlexibleTimeWindowModeOff,
+			},
+			ActionAfterCompletion: types.ActionAfterCompletionDelete,
+			Target: &types.Target{
+				Arn:     &arn,
+				RoleArn: &roleArn,
+				Input:   &input,
+			},
+		})
+	}
 	return err
 }
 
 func ptr(s string) *string { return &s }
+
+// isConflict は Schedule 名の重複エラーかを判定する
+func isConflict(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Conflict")
+}

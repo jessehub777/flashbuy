@@ -22,11 +22,12 @@ flowchart TB
 
     subgraph CL["客户端"]
         Web["Web App (React + TS)"]
-        Console["管理后台 (React)"]
+        Console["管理画面 (/admin)"]
     end
 
     subgraph NW["网络与接入层"]
         Ingress["Route53 → ACM → ALB"]
+        CF["CloudFront<br/>(前端分发 + /api 转发)"]
     end
 
     subgraph AU["认证层"]
@@ -58,8 +59,9 @@ flowchart TB
     end
 
     %% 主请求链路（实线）
-    Web --> Ingress
-    Console --> Ingress
+    Web --> CF
+    Console --> CF
+    CF --> Ingress
     Ingress --> API
     API <-->|认证（SDK 调用 / JWT 验证）| Cognito
     API ==> Aurora
@@ -80,7 +82,7 @@ flowchart TB
     GH -. 部署 .-> Worker
 
     class Web,Console client
-    class Ingress net
+    class Ingress,CF net
     class Cognito auth
     class API,Worker biz
     class EB,SNS msg
@@ -91,7 +93,7 @@ flowchart TB
 
 > 注：上图为**目标架构**。
 >
-> 数据库：上图中的 Aurora 为**生产演进目标**；当前采用 **RDS PostgreSQL（provisioned）**，选型理由见 §5.1。异步 Worker（Lambda）承担抽选开奖、订单超时等批处理任务（设计见 §6）。S3 用于存储商品图片。
+> 数据库：上图中的 Aurora 为**生产演进目标**；当前采用 **RDS PostgreSQL（provisioned）**，选型理由见 §5.1。前端经 CloudFront 分发（静态托管 + `/api` 转发至 ALB）；Route53 / ACM 为目标接入形态。异步 Worker（Lambda）承担抽选开奖、订单超时等批处理任务（设计见 §6）。S3 用于存储商品图片。
 
 ---
 
@@ -110,20 +112,20 @@ flowchart TB
 - **Database Access**: sqlx, PostgreSQL（当前 RDS PostgreSQL / 生产演进 Aurora，见 §5.1）
 - **Cache & Storage**: go-redis/v9 (Redis Lua 脚本原子操作)
 - **AWS Integration**: aws-sdk-go-v2
-- **Logging & Validation**: Zap, go-playground/validator
+- **Logging**: Zap（结构化日志）
 
 ### 2.3 云服务与基础设施 (AWS)
 
 - **Compute**: ECS Fargate Spot, AWS Lambda (Go Runtime)
 - **Database & Cache**: PostgreSQL（**当前: RDS provisioned** / 生产演进: Aurora Serverless v2, 见 §5.1）, ElastiCache Redis
-- **Storage & Lifecycle**: S3 Standard, S3 Standard-IA, S3 Glacier / Deep Archive（生命周期分级存储；商品图片）
+- **Storage & Lifecycle**: S3（商品图片；生命周期分级见 §5）
 - **Messaging & Event**: SNS Standard, EventBridge Scheduler
 - **Network & Security**: ALB, Route53, ACM, Amazon Cognito
 - **Deployment & Monitoring**: CodeDeploy, CloudWatch, Grafana
 
 ### 2.4 IaC & CI/CD
 
-- **Terraform** (模块化设计, S3 Remote State + DynamoDB 锁机制)
+- **Terraform** (模块化设计, S3 Remote State + S3 原生锁 `use_lockfile`)
 - **GitHub Actions** (构建、测试、ECR 镜像推送、CodeDeploy 蓝绿部署、Terraform 部署)
 
 ---
@@ -142,8 +144,9 @@ flowchart TB
    ② Redis Lua 原子扣减库存（同步、防超卖）
       ├─ 库存不足 → 返回“已售罄”
       └─ 成功 → 继续
-   ③ 事务写入订单 (UNPAID, expires_at = now + 15min)
-   ④ 返回响应 { orderId, status: "QUEUED" }
+   ③ 事务写入订单 (UNPAID, expires_at = now + 15min) + DB 库存 -1
+   ④ 注册 at(expires_at) 一次性 Schedule（失败仅记日志，cron 兜底）
+   ⑤ 返回响应 { orderId, status: "QUEUED" }
 ```
 
 > **同步设计依据**：下单链路保持同步完成，因为库存扣减必须依赖 Redis 单线程原子性（超卖防护的根基），无法通过消息队列延迟处理；且用户需要立即得知抢购结果，异步化只会引入轮询/推送的复杂度。订单超时取消与库存回补是独立的批处理任务，部署形态见 §6。
@@ -157,7 +160,7 @@ flowchart TB
    ① 读取报名列表
    ② 使用 crypto/rand 生成安全随机数
    ③ Fisher-Yates 洗牌算法
-   ④ 抽取中签者并批量写入 DB (统一更新 status: UNPAID / LOST)
+   ④ 抽取中签者并批量写入 DB（中签 UNPAID + 72 小时 pay_deadline，其余 LOST）
    ⑤ 发布 SNS 事件 (lottery.drawn)
 ```
 
@@ -169,29 +172,40 @@ flowchart TB
 flashbuy/
 ├── frontend/                       # React + TypeScript 前端
 │   ├── src/
-│   │   ├── components/             # 通用组件 (Countdown, TicketCard, PaymentMockModal, OrderStatusModal)
+│   │   ├── components/             # 通用组件 (TicketCard, PaymentMockModal, Countdown, OrderStatusModal, layout)
 │   │   ├── hooks/                  # 自定义 Hook (useCountdown)
-│   │   ├── pages/                  # 页面 (Home, FlashList, Flash, LotteryList, Lottery, Search, MyPage, Admin)
+│   │   ├── pages/                  # 页面 (Home, FlashList, Flash, LotteryList, Lottery, Search, MyPage, Admin, Login, Register)
 │   │   ├── services/               # API 通信层 (api.ts, request.ts)
 │   │   ├── stores/                 # Zustand 状态管理 (authStore, orderStore)
 │   │   └── types/                  # TypeScript 类型定义 (index.ts)
+│   └── Dockerfile                  # 前端镜像
 ├── api/                            # Go API 主服务 (Gin)
 │   ├── cmd/server/                 # 入口 (main.go)
 │   ├── config/                     # 配置加载 (viper)
-│   ├── controllers/                # HTTP 控制器 (auth / flash / lottery / payment / admin / my / search / home)
+│   ├── controllers/                # HTTP 控制器 (auth / flash+buy / lottery+apply / payment / admin / my / search / home / upload)
 │   ├── middleware/                 # 中间件 (AuthRequired / RequireRole)
 │   ├── models/                     # 数据模型 (db/json tag)
-│   ├── pkg/                        # 公共包 (cache / database / logger / response / auth / task)
+│   ├── pkg/                        # 公共包 (cache / database / logger / response / auth / s3 / scheduler / task)
 │   ├── router/                     # 路由定义
-│   └── config-local.yaml           # 本地开发配置
-├── lambdas/                        # AWS Lambda 异步任务 (LotteryDrawer 等)
-├── terraform/                      # Terraform 基础设施定义
-│   ├── state/                      # Terraform State 后端（S3 bucket + DynamoDB 锁表）
+│   ├── Dockerfile / .dockerignore  # API 镜像（多阶段构建，ARM64）
+│   ├── docker-compose.yml          # 本地 Postgres + Redis
+│   ├── init_db.sql                 # 建表 + 种子数据（正本）
+│   └── config-*.yaml(.example)     # 本地/dev/云配置模板（实文件不提交）
+├── lambdas/                        # AWS Lambda 异步任务（独立 module，build.sh 出 zip）
+│   ├── lottery_drawer/             # 抽选开奖（draw 纯逻辑包 + handler + sns + schedule + build.sh）
+│   └── order_expirer/              # 订单过期取消（at 精确取消 + cron 扫表，含单测 + build.sh）
+├── terraform/                      # Terraform 基础设施（各目录独立 state）
+│   ├── state/                      # State 后端（S3 + 锁）
 │   ├── data/                       # 数据层（VPC + RDS PostgreSQL + ElastiCache Redis）
 │   ├── auth/                       # 认证层（Cognito User Pool + App Client）
-│   └── frontend/                   # 前端托管（S3 + CloudFront）
+│   ├── shared/                     # GitHub Actions OIDC
+│   ├── storage/                    # 商品图片 S3（公开读 + CORS）
+│   ├── lambda/                     # Lambda + Scheduler + SNS
+│   ├── frontend/                   # 前端托管（S3 + CloudFront，含 /api 转发）
+│   └── compute/                    # 计算层（ECR + ECS Fargate + ALB + CodeDeploy）
+├── .github/workflows/              # CI/CD
 ├── data_design.md                  # 数据结构与后端设计文档
-└── README.md
+└── README.md / README_zh.md        # 架构蓝图（中日双语）
 ```
 
 ---
@@ -200,12 +214,13 @@ flashbuy/
 
 | 模块 | 当前采用 | 生产演进 | 权衡考量                                                   |
 | :--- | :--- | :--- |:-----------------------------------------------------------|
-| **CDN / WAF** | 未引入 | CloudFront + AWS WAF | 当前无真实边缘流量，省略以简化网络架构                 |
+| **CDN / WAF** | CloudFront（前端分发 + `/api` 转发） | + AWS WAF | 当前边缘流量小，WAF 省略以简化架构                 |
+| **存储分级** | S3 Standard（单桶） | Standard-IA / Glacier 生命周期 | 图片量小，暂不做分级沉降 |
 | **可观测性** | CloudWatch + Grafana | + AWS X-Ray | 当前结构化日志已满足追踪需求，暂不引入分布式追踪 |
 | **SNS** | 开奖结果事件通知（lottery.drawn） | 视场景引入 FIFO | 异步 Worker（开奖 Lambda）通过 SNS 发布业务事件 |
 | **数据库** | **RDS PostgreSQL（provisioned）** | Aurora Serverless v2 | 见 §5.1「数据库选型取舍」                                  |
-| **Redis** | 单节点模式（主/从） | Cluster 多节点集群 | 当前规模下单节点已足够支撑逻辑与性能验证                   |
-| **支付流程** | 状态机 Mock 模拟 | 真实第三方支付 API | 聚焦于支付状态机（UNPAID → PAID → TIMEOUT）的链路逻辑验证  |
+| **Redis** | 单节点 | Cluster 多节点集群 | 当前规模下单节点已足够支撑逻辑与性能验证                   |
+| **支付流程** | 状态机 Mock 模拟 | 真实第三方支付 API | 聚焦于支付状态机（UNPAID → PAID → CANCELLED）的链路逻辑验证  |
 
 ### 5.1 数据库选型取舍：RDS vs Aurora Serverless v2
 
@@ -247,12 +262,12 @@ flashbuy/
 **② 兜底（扫表）— EventBridge cron**
 
 `at()` 存在"注册失败 / Lambda 失败 / 调度异常"等漏配可能，故以 1 分钟周期的 cron 扫表回收：
-`WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（命中部分索引 `idx_*_orders_expire`，分批控制单次负载）。漏网的过期订单最迟在下一轮被回收。
+`WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（命中部分索引 `idx_*_orders_expire`，分批控制单次负载；抽选侧条件为 `pay_deadline`）。漏网的过期订单最迟在下一轮被回收。
 
 | 设计点 | 说明 |
 | :--- | :--- |
 | 幂等 | 所有取消 SQL 带 `status='UNPAID'` + `expires_at < now()` 双条件，并以 `UPDATE ... RETURNING` 原子取回库存 ID——多轮触发、再试运行不会重复取消，也不会重复回补库存 |
-| 库存回补 | Redis INCR（幂等权威库存）与 DB stock 同步恢复；Redis 不可达时仅回补 DB 并由下轮扫描补齐 |
+| 库存回补 | Redis Lua 条件回补（key 存在才 INCR，不存在不造库存）与 DB stock 同步恢复；Redis 不可达时仅回补 DB 并由下轮扫描补齐 |
 | 本地环境 | `expirer_function_arn` 未配置时（本地 / Lambda 未部署）由 API 内 goroutine（1 分钟间隔）承担同等扫表逻辑，避免空窗 |
 
 ### 6.2 抽选开奖（Lottery Drawer）
@@ -264,20 +279,35 @@ flashbuy/
 | 运行时间有限 | 从 `lottery_orders` 随机抽 N 条，几秒内完成，远低于 Lambda 15min 上限 |
 | 按商品独立调度 | 每创建一个抽选商品就注册一个一次性 Schedule，互不干扰 |
 
+**① 本线（精确到点）— EventBridge Scheduler `at()`**
+
 ```
 创建抽选商品（Admin API）
-    → 同时调用 EventBridge Scheduler CreateSchedule
+    → 同时调用 EventBridge Scheduler CreateSchedule（重名时 Update 覆盖）
     → 指定 draw_at 时间一次性触发
-    → Lambda 执行: 随机选 winner_count 条 lottery_orders 改为 UNPAID，其余改 LOST
+    → Lambda 执行（mode=draw）: 随机选 winner_count 条 lottery_orders 改为 UNPAID，其余改 LOST
     → 触发后自动删除 Schedule
 ```
+
+**② 兜底（扫表）— EventBridge cron**
+
+一次性 Schedule 是「注册」与「配信」两段式：注册失败（IAM 权限、配额、参数错误）、配信失败、Lambda 本身失败，任一环节出错都意味着**该抽选永久不会开奖**，而管理端依旧返回成功、用户端只会看到「开奖待ち」。
+
+因此以 1 分钟周期的 cron 扫表补开奖，捞取「`draw_at` 已过但仍存在 `WAITING` 应募」的抽选（按 `draw_at` 升序，每次最多 10 件）：
+
+| 设计点 | 说明 |
+| :--- | :--- |
+| 幂等 | 开票逻辑为「先将全部 `WAITING` 置为 `LOST`，再仅将中选者覆盖为 `UNPAID`」；`WAITING` 为空时直接正常返回。重复执行结果不变 |
+| 并发安全 | `drawLottery` 内对 `lottery_items` 行加 `FOR UPDATE`，本线与扫表重叠时串行化，后到者检测到 `WAITING` 已空即正常返回 |
+| 失败不阻断 | 单件开奖失败仅记日志并继续处理其余，失败件保留 `WAITING` 状态，下一轮自动重试 |
+| 为何用 Rules 而非 Scheduler | Lambda 位于私有子网（无 NAT），由 EventBridge Rules 主动调用 Lambda 可避免 Lambda 出公网，与 §6.1 的扫表同构 |
 
 ### 6.3 部署形态汇总
 
 | 任务 | 部署形态 | 说明 |
 | :--- | :--- | :--- |
 | 订单超时取消 + 库存回补 | **EventBridge `at()` 精确取消（仅秒杀）+ cron 扫表（全量兜底）+ Lambda**（`order_expirer`） | ① 秒杀按 `at(expires_at)` 逐单取消（即时回补库存）；② 抽选中选单与 ① 的漏配订单由 cron 每分钟扫表回收；两类触发共用同一 Lambda，靠 `mode` 分发 |
-| 抽选开奖 | **EventBridge `at()` + Lambda** | 按 draw_at 一次性触发，批处理，无常驻进程 |
+| 抽选开奖 | **EventBridge `at()` 精确开票 + cron 扫表兜底 + Lambda**（`lottery_drawer`） | ① 按 `draw_at` 一次性触发指定抽选（即时开票）；② 上一行失败时的漏网抽选由 cron 每分钟扫表回收；两类触发共用同一 Lambda，靠 `mode` 分发 |
 
 ---
 

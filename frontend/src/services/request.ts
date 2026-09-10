@@ -30,6 +30,39 @@ axios.interceptors.request.use((config) => {
 })
 
 // 認証切れ（code=401）時にリフレッシュトークンで自動更新してリクエストを再送する
+// 進行中のリフレッシュ処理（single-flight用。同時に1つだけ実行する）
+let refreshingToken: Promise<string> | null = null
+
+// リフレッシュトークンから新しいIDトークンを取得する。
+// ページ表示中に複数リクエストが同時に401になった場合、各々がバラバラに
+// リフレッシュを呼ぶと同じrefreshTokenの使い回しでセッションが壊れる恐れがある。
+// 先着1人だけがAPIを呼び、他はその結果を待って使い回す。
+async function refreshAuthToken(): Promise<string> {
+  if (refreshingToken) {
+    return refreshingToken
+  }
+
+  const refreshToken = getRefreshToken?.()
+  if (!refreshToken) {
+    return Promise.reject(new ApiError(401, 'リフレッシュトークンがありません'))
+  }
+
+  refreshingToken = axios
+    .post<ApiResponse<{ token: string }>>('/api/v1/auth/refresh', { refreshToken })
+    .then(({ data }) => {
+      if (data.code !== 0 || !data.data?.token) {
+        throw new ApiError(data.code, data.message || 'トークンの更新に失敗しました')
+      }
+      setToken?.(data.data.token)
+      return data.data.token
+    })
+    .finally(() => {
+      refreshingToken = null
+    })
+
+  return refreshingToken
+}
+
 async function handleUnauthorized(originalRequest: InternalAxiosRequestConfig): Promise<AxiosResponse> {
   // リフレッシュAPI自体が401なら無限ループを防ぐため再試行しない
   if (originalRequest.url?.includes('/auth/refresh')) {
@@ -37,29 +70,22 @@ async function handleUnauthorized(originalRequest: InternalAxiosRequestConfig): 
     return Promise.reject(new ApiError(401, 'セッションが失効しました'))
   }
 
-  const refreshToken = getRefreshToken?.()
-  if (!refreshToken) {
-    // リフレッシュトークンが無い場合はログアウト
+  // すでに一度リフレッシュして再送したリクエストは、再度401でも再試行しない
+  // （新しいトークンでも弾かれるなら、これ以上の再試行は無限ループになるため）
+  const req = originalRequest as InternalAxiosRequestConfig & { _retry?: boolean }
+  if (req._retry) {
     onUnauthorized?.()
     return Promise.reject(new ApiError(401, 'セッションが失効しました'))
   }
+  req._retry = true
 
   try {
-    // リフレッシュトークンで新しいIDトークンを取得
-    const { data } = await axios.post<ApiResponse<{ token: string }>>('/api/v1/auth/refresh', {
-      refreshToken,
-    })
-    if (data.code !== 0 || !data.data?.token) {
-      // リフレッシュトークンも失効 → ログアウト
-      onUnauthorized?.()
-      return Promise.reject(new ApiError(data.code, data.message || 'トークンの更新に失敗しました'))
-    }
-
-    // 新しいトークンを保存して、元のリクエストを再送する
-    setToken?.(data.data.token)
-    originalRequest.headers.Authorization = `Bearer ${data.data.token}`
-    return axios(originalRequest)
+    // 新しいトークンを取得して（single-flight）、元のリクエストを再送する
+    const token = await refreshAuthToken()
+    req.headers.Authorization = `Bearer ${token}`
+    return axios(req)
   } catch (err) {
+    // リフレッシュ失敗（トークン失効など）→ ログアウト
     onUnauthorized?.()
     return Promise.reject(err)
   }

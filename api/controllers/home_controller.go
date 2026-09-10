@@ -50,6 +50,14 @@ func (h *HomeController) GetTop10(c *gin.Context) {
 		return
 	}
 
+	// 0件のときも [] を返す（nil のままだと JSON が null になり、フロント側のエラーになるため）
+	if data.FlashList == nil {
+		data.FlashList = []models.FlashItem{}
+	}
+	if data.LotteryList == nil {
+		data.LotteryList = []models.LotteryItem{}
+	}
+
 	response.Success(c, gin.H{
 		"flashList":   data.FlashList,
 		"lotteryList": data.LotteryList,

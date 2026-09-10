@@ -8,12 +8,12 @@ terraform {
   }
   # S3 Remote State（terraform/state で作成したバケットを使用）
   backend "s3" {
-    bucket         = "flashbuy-terraform-state"
-    key            = "data/terraform.tfstate"
-    region         = "ap-northeast-1"
+    bucket = "flashbuy-terraform-state"
+    key    = "data/terraform.tfstate"
+    region = "ap-northeast-1"
     # DynamoDB によるロック（use_lockfile は dynamodb_table の新しい指定方法）
-    use_lockfile   = true
-    encrypt        = true
+    use_lockfile = true
+    encrypt      = true
   }
 }
 

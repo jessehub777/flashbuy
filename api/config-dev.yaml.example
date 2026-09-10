@@ -1,0 +1,47 @@
+# config-dev.yaml のテンプレート。
+# 実際の値を記入して config-dev.yaml という名前で保存する
+# （config-dev.yaml は .gitignore 済みのため、実ファイルはコミットされない）
+#
+# 値の出所:
+#   database.host      → cd terraform/data && terraform output rds_host
+#   database.password  → terraform.tfvars に設定した db_password
+#   cognito.*          → cd terraform/auth && terraform output
+#   s3_bucket_name     → cd terraform/storage && terraform output images_bucket_name
+#   scheduler.*        → cd terraform/lambda && terraform output
+#   redis.host         → ElastiCache はVPC内でローカルから届かないため docker Redis を使う
+app:
+  env: dev
+  port: "8080"
+
+database:
+  host: "<rds_host>"
+  port: 5432
+  user: "flashbuy"
+  password: "<RDSのパスワード>"
+  dbname: "flashbuy"
+  sslmode: require
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+
+aws:
+  region: ap-northeast-1
+  access_key_id: ""
+  secret_access_key: ""
+  s3_bucket_name: "flashbuy-images-dev"
+
+cognito:
+  region: ap-northeast-1
+  user_pool_id: "ap-northeast-1_xxxxxxxxx"
+  app_client_id: "xxxxxxxxxxxxxxxxxx"
+
+# EventBridge Scheduler（空欄のままなら各種スケジュール登録はスキップされる）
+scheduler:
+  region: ap-northeast-1
+  schedule_group_name: ""
+  drawer_function_arn: ""
+  expirer_function_arn: ""
+  execution_role_arn: ""

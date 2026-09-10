@@ -35,15 +35,17 @@ type FlashOrderDTO struct {
 
 // LotteryOrderDTO はマイページ用の抽選応募レスポンスです（商品名・画像をJOINで取得）
 type LotteryOrderDTO struct {
-	ID          string     `db:"id" json:"id"`
-	LotteryID   string     `db:"lottery_id" json:"lotteryId"`
-	LotteryName string     `db:"lottery_name" json:"lotteryName"`
-	ImageS3Key  *string    `db:"image_s3_key" json:"imageS3Key,omitempty"`
-	AppliedAt   time.Time  `db:"applied_at" json:"appliedAt"`
-	Status      string     `db:"status" json:"status"` // 'WAITING','UNPAID','LOST','PAID','CANCELLED'
-	PayDeadline *time.Time `db:"pay_deadline" json:"payDeadline,omitempty"`
-	Price       int        `db:"price" json:"price"`              // 応募費（0 = 応募無料）
-	ChosenPrice int        `db:"chosen_price" json:"chosenPrice"` // 当選時に実際に支払う金額
+	ID            string     `db:"id" json:"id"`
+	LotteryID     string     `db:"lottery_id" json:"lotteryId"`
+	LotteryName   string     `db:"lottery_name" json:"lotteryName"`
+	ImageS3Key    *string    `db:"image_s3_key" json:"imageS3Key,omitempty"`
+	AppliedAt     time.Time  `db:"applied_at" json:"appliedAt"`
+	ApplyDeadline time.Time  `db:"apply_deadline" json:"applyDeadline"` // 抽選の応募締切（締切までの表示用）
+	DrawAt        time.Time  `db:"draw_at" json:"drawAt"`               // 抽選実施日時（開票待ちの残り時間表示用）
+	Status        string     `db:"status" json:"status"`                // 'WAITING','UNPAID','LOST','PAID','CANCELLED'
+	PayDeadline   *time.Time `db:"pay_deadline" json:"payDeadline,omitempty"`
+	Price         int        `db:"price" json:"price"`              // 応募費（0 = 応募無料）
+	ChosenPrice   int        `db:"chosen_price" json:"chosenPrice"` // 当選時に実際に支払う金額
 }
 
 // GetMyFlashOrderList はログイン中のユーザーのフラッシュ注文一覧を返します
@@ -90,7 +92,8 @@ func (h *MyController) GetMyLotteryOrderList(c *gin.Context) {
 	var lotteryOrderList []LotteryOrderDTO
 	err := database.DB.Select(&lotteryOrderList, `
 		SELECT lo.id, lo.lottery_id, li.name AS lottery_name, li.image_s3_key,
-		       lo.applied_at, lo.status, lo.pay_deadline, lo.price, lo.chosen_price
+		       lo.applied_at, li.apply_deadline, li.draw_at, lo.status,
+		       lo.pay_deadline, lo.price, lo.chosen_price
 		FROM lottery_orders lo
 		JOIN lottery_items li ON li.id = lo.lottery_id
 		WHERE lo.user_id = $1

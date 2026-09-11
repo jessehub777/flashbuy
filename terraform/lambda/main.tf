@@ -151,6 +151,31 @@ resource "aws_lambda_function" "lottery_drawer" {
   tags = {
     Name = "${var.project_name}-lottery-drawer-${var.environment}"
   }
+
+  lifecycle {
+    # コードは CI（v* タグのリリース）が差し替える。terraform は設定だけを管理する。
+    # source_code_hash を見ると、apply のたびに CI が入れたコードをローカルの zip に
+    # 巻き戻してしまうため無視する
+    ignore_changes = [filename, source_code_hash]
+  }
+}
+
+# ==============================================================================
+# リリース用エイリアス（live）
+# ==============================================================================
+# CI は新しいバージョンを publish してこのエイリアスを切り替える。
+# トリガー（Scheduler / EventBridge）はこのエイリアスを呼ぶので、
+# ロールバックはエイリアスの向き先を戻すだけで済む。
+# 初回はバージョン未発行のため $LATEST を指す（CI の初回リリースで切り替わる）
+resource "aws_lambda_alias" "lottery_drawer" {
+  name             = "live"
+  description      = "リリース用（CI が切り替える）"
+  function_name    = aws_lambda_function.lottery_drawer.function_name
+  function_version = "$LATEST"
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
 }
 
 # ==============================================================================
@@ -190,9 +215,13 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["lambda:InvokeFunction"]
-        Resource = aws_lambda_function.lottery_drawer.arn
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunction"]
+        # 既に登録済みの Schedule は素の ARN、以降の登録はエイリアス ARN を指すため両方許可する
+        Resource = [
+          aws_lambda_function.lottery_drawer.arn,
+          aws_lambda_alias.lottery_drawer.arn
+        ]
       }
     ]
   })
@@ -232,7 +261,7 @@ resource "aws_cloudwatch_event_rule" "lottery_drawer_scan" {
 resource "aws_cloudwatch_event_target" "lottery_drawer_scan" {
   rule      = aws_cloudwatch_event_rule.lottery_drawer_scan.name
   target_id = "lottery-drawer-scan"
-  arn       = aws_lambda_function.lottery_drawer.arn
+  arn       = aws_lambda_alias.lottery_drawer.arn
 
   # mode="scan" を渡してハンドラ側でスキャン処理に振り分ける
   input = jsonencode({ mode = "scan" })
@@ -243,6 +272,7 @@ resource "aws_lambda_permission" "lottery_drawer_scan" {
   statement_id  = "AllowExecutionFromEventBridgeScan"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.lottery_drawer.function_name
+  qualifier     = aws_lambda_alias.lottery_drawer.name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.lottery_drawer_scan.arn
 }

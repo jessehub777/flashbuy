@@ -1,11 +1,12 @@
 # ==============================================================================
-# API CI/CD（Go バックエンド）
+# API CI（Go バックエンド）
 #
 # - PR / push: go build + vet + test
-# - develop への push: ECR へイメージ push → ECS ローリングデプロイ
-#
-# イメージは latest とコミットSHA の両方のタグを付ける。
-# SHA タグはロールバック用（昔のSHAのイメージに latest を付け直して再デプロイする）。
+# - develop への push: arm64 でビルドできるか + ECR にログインできるかを確認
+#   （ECR へは push しない。ECR に置くのはリリース版のイメージだけ。
+#     「最新 5 件を保持」=「直近 5 リリース」という状態を保つため）
+# リリース（自動デプロイ）は api-cd.yml（v* タグの push で起動）が行う。
+# このファイルは「検査」までを担当する。
 #
 # 前提（初回のみ）:
 #   1. terraform を shared → compute の順に apply（OIDC Provider は shared が作る）
@@ -13,25 +14,25 @@
 #      （値は terraform/compute の output github_actions_api_role_arn）
 # ==============================================================================
 
-name: API CI/CD
+name: API CI
 
 on:
   push:
     branches: [develop, main]
     paths:
       - 'api/**'
-      - '.github/workflows/api.yml'
+      - '.github/workflows/api-ci.yml'
   pull_request:
     branches: [develop, main]
     paths:
       - 'api/**'
-      - '.github/workflows/api.yml'
+      - '.github/workflows/api-ci.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: api-deploy-${{ github.ref }}
+  group: api-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -62,9 +63,13 @@ jobs:
         run: go test ./...
 
   # ---------------------------------------------------------------------------
-  # デプロイ（develop への push のみ。ECR push → ECS のタスク入れ替え）
+  # ビルド検証（develop への push のみ）
+  #
+  # arm64 でビルドできることと、OIDC ロールで ECR にログインできることを確認する。
+  # イメージは push しない（ECR に置くのはリリース版だけ。最新 5 件 = 直近 5 リリース）。
+  # ECS への反映（デプロイ）は api-cd.yml（v* タグの push）が行う
   # ---------------------------------------------------------------------------
-  deploy:
+  publish:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
@@ -75,8 +80,6 @@ jobs:
       contents: read
     env:
       AWS_REGION: ap-northeast-1
-      ECS_CLUSTER: flashbuy-cluster-dev
-      ECS_SERVICE: flashbuy-api-dev
       ECR_REPOSITORY: flashbuy-api-dev
     steps:
       - uses: actions/checkout@v4
@@ -101,30 +104,17 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push image
-        env:
-          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
-            -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
-            --push api/
-
-      # タスク定義は terraform が管理しているため、CI から
-      # register-task-definition はしない（やると次回の terraform apply で
-      # 巻き戻される）。イメージの中身だけ差し替えるのが正しい分担
-      - name: Deploy to ECS
-        run: |
-          # タスク定義は :latest を参照しているため、イメージを push してから
-          # 強制的に新しいタスクを起動すれば、新しいイメージがデプロイされる
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --force-new-deployment
-
-          # デプロイが安定するまで待つ（ヘルスチェック失敗ならここで job が落ちる）
-          aws ecs wait services-stable \
-            --cluster "$ECS_CLUSTER" \
-            --services "$ECS_SERVICE"
+      # push しない（ECR に置くのはリリース版だけ）。ビルドが通ることと
+      # ECR へのログインが通ることを確認するのが目的
+      - name: Build (verification only, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: api
+          platforms: linux/arm64
+          push: false
+          load: false
+          tags: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:ci
+          # ビルドキャッシュを GitHub Actions のキャッシュに保存して、次回以降の
+          # ビルドを短縮する（scope 固定でブランチ/タグをまたいで共有される）
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max

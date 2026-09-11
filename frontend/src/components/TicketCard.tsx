@@ -10,6 +10,9 @@ import 'dayjs/locale/ja'
 dayjs.extend(relativeTime)
 dayjs.locale('ja')
 
+// 当選率ドットの数（StockDots と同じ考え方）
+const DOT_COUNT = 5
+
 // ===== フラッシュセール用チケットカード =====
 interface FlashTicketProps {
   sale: FlashItem
@@ -84,7 +87,7 @@ export function FlashTicket({ sale }: FlashTicketProps) {
               : 'bg-flash text-paper hover:brightness-110'
             }`}>
             {isUpcoming ?
-              '受付前'
+              '販売開始前'
             : isSoldOut ?
               '売り切れ'
             : isEnded ?
@@ -187,14 +190,18 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
             {item.price === 0 && <span className="text-[12px] text-muted font-normal ml-1">応募無料</span>}
           </div>
 
-          {/* 応募者数・当選枠 */}
+          {/* 応募者数・当選枠（ドットは当選率の目安: 当選枠 ÷ 応募者数） */}
           <div className="flex items-center gap-2 mb-[14px]">
             <div className="flex gap-[3px]">
-              {Array.from({ length: 5 }).map((_, i) => (
+              {Array.from({ length: DOT_COUNT }).map((_, i) => (
                 <div
                   key={i}
                   className={`w-[6px] h-[6px] rounded-full ${
-                    i < Math.min(Math.round((item.winnerCount / Math.max(item.applyCount ?? 1, 1)) * 5 * 10), 5) ?
+                    i <
+                    Math.min(
+                      Math.round((item.winnerCount / Math.max(item.applyCount ?? 1, 1)) * DOT_COUNT),
+                      DOT_COUNT,
+                    ) ?
                       'bg-lottery'
                     : 'bg-line-paper'
                   }`}

@@ -118,7 +118,7 @@ export default function FlashList() {
                 'bg-flash text-paper font-semibold'
               : 'bg-white/[0.04] text-muted hover:text-paper'
             }`}>
-            すべて件数 ({flashList.length})
+            すべて ({flashList.length})
           </button>
           {categories.map((cat) => {
             const count = flashList.filter((s) => s.category === cat).length

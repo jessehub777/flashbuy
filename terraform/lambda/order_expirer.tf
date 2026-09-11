@@ -115,6 +115,11 @@ resource "aws_lambda_function" "order_expirer" {
   tags = {
     Name = "${var.project_name}-order-expirer-${var.environment}"
   }
+
+  lifecycle {
+    # コードは CI（v* タグのリリース）が差し替える。terraform は設定だけを管理する
+    ignore_changes = [filename, source_code_hash]
+  }
 }
 
 # ==============================================================================
@@ -130,6 +135,21 @@ resource "aws_lambda_function" "order_expirer" {
 # ==============================================================================
 # ② スキャン（バックアップ）— EventBridge Rules の cron で定期実行
 # ==============================================================================
+# ==============================================================================
+# リリース用エイリアス（live）
+# ==============================================================================
+# 役割は lottery_drawer と同じ。cron スキャンの Target はこのエイリアスを指す
+resource "aws_lambda_alias" "order_expirer" {
+  name             = "live"
+  description      = "リリース用（CI が切り替える）"
+  function_name    = aws_lambda_function.order_expirer.function_name
+  function_version = "$LATEST"
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
+}
+
 resource "aws_cloudwatch_event_rule" "order_expirer_scan" {
   name                = "${var.project_name}-order-expirer-scan-${var.environment}"
   description         = "Scan for expired unpaid orders (fallback safety net)"
@@ -143,7 +163,8 @@ resource "aws_cloudwatch_event_rule" "order_expirer_scan" {
 resource "aws_cloudwatch_event_target" "order_expirer_scan" {
   rule      = aws_cloudwatch_event_rule.order_expirer_scan.name
   target_id = "order-expirer-scan"
-  arn       = aws_lambda_function.order_expirer.arn
+  # エイリアスを呼ぶ（切り替え＝リリース、向き先を戻す＝ロールバック）
+  arn = aws_lambda_alias.order_expirer.arn
 
   # mode="scan" を渡してハンドラ側でスキャン処理に振り分ける
   input = jsonencode({ mode = "scan" })
@@ -154,6 +175,7 @@ resource "aws_lambda_permission" "order_expirer_scan" {
   statement_id  = "AllowExecutionFromEventBridgeScan"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.order_expirer.function_name
+  qualifier     = aws_lambda_alias.order_expirer.name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.order_expirer_scan.arn
 }
@@ -174,9 +196,13 @@ resource "aws_iam_role_policy" "scheduler_invoke_expirer" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["lambda:InvokeFunction"]
-        Resource = aws_lambda_function.order_expirer.arn
+        Effect = "Allow"
+        Action = ["lambda:InvokeFunction"]
+        # 既登録の Schedule は素の ARN、以降はエイリアス ARN。両方許可する
+        Resource = [
+          aws_lambda_function.order_expirer.arn,
+          aws_lambda_alias.order_expirer.arn
+        ]
       }
     ]
   })

@@ -7,6 +7,20 @@ import { api } from '../../services/api'
 import { uploadImage } from '../../services/request'
 import dayjs from 'dayjs'
 
+// ステータス表示用（DBの値は英語のため、管理画面では日本語に変換して表示する）
+const FLASH_STATUS_LABEL: Record<string, string> = {
+  UPCOMING: '販売前',
+  ACTIVE: '販売中',
+  SOLD_OUT: '売り切れ',
+  ENDED: '終了',
+}
+const LOTTERY_STATUS_LABEL: Record<string, string> = {
+  UPCOMING: '予告',
+  ACTIVE: '受付中',
+  DRAWING: '抽選中',
+  ENDED: '終了',
+}
+
 export default function Admin() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -125,7 +139,7 @@ export default function Admin() {
                         : sale.status === 'UPCOMING' ? 'text-lottery border-lottery/30 bg-lottery/10'
                         : 'text-muted border-white/10'
                       }`}>
-                      {sale.status}
+                      {FLASH_STATUS_LABEL[sale.status] ?? sale.status}
                     </span>
                   </td>
                   <td className="font-mono text-[11px] text-muted">
@@ -177,7 +191,7 @@ export default function Admin() {
                           'text-lottery border-lottery/30 bg-lottery/10'
                         : 'text-muted border-white/10'
                       }`}>
-                      {item.status}
+                      {LOTTERY_STATUS_LABEL[item.status] ?? item.status}
                     </span>
                   </td>
                   <td className="font-mono text-[11px] text-muted">
@@ -278,7 +292,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
         await api.createLottery({
           name,
           category: category.trim() || '限定アイテム',
-          price: Number(price) || 0,
+          price: 0, // 応募費は0円固定（応募無料）。入力欄を置かないため送信も0で固定する
           chosenPrice: Number(chosenPrice) || 0,
           winnerCount: Number(winnerCount) || 10,
           description,
@@ -361,19 +375,30 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
                 placeholder="例: 限定グッズ"
               />
             </div>
-            <div>
-              <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
-                {flashMode ? '価格 (¥)' : '応募費 (¥)'}
-              </label>
-              <input
-                className="input-dark"
-                type="number"
-                min={0}
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder={flashMode ? '29800' : '0'}
-              />
-            </div>
+            {flashMode ?
+              <div>
+                <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
+                  価格 (¥)
+                </label>
+                <input
+                  className="input-dark"
+                  type="number"
+                  min={0}
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value)}
+                  placeholder="29800"
+                />
+              </div>
+            : /* 応募費は 0 円固定（応募無料）。入力欄は置かず、表示だけ行う */
+              <div>
+                <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
+                  応募費
+                </label>
+                <div className="input-dark flex items-center text-[13px] text-paper/70">
+                  応募無料（¥0）
+                </div>
+              </div>
+            }
             {!flashMode && (
               <div>
                 <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
@@ -471,7 +496,9 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
 
           {/* 説明 */}
           <div>
-            <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">商品説明</label>
+            <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
+              {flashMode ? '商品説明' : '抽選説明'}
+            </label>
             <textarea
               className="input-dark h-14 resize-none text-[12px]"
               value={description}
@@ -502,7 +529,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
               className="input-dark h-16 resize-none text-[12px]"
               value={rulesText}
               onChange={(e) => setRulesText(e.target.value)}
-              placeholder={'お1人様1点まで\n転売目的の購入禁止\nBOT使用検知時自動キャンセル'}
+              placeholder={'転売目的の購入禁止\nBOT使用検知時自動キャンセル'}
             />
           </div>
 

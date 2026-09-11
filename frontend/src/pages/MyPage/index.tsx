@@ -54,24 +54,28 @@ export default function MyPage() {
     [applications, now],
   )
 
-  // 統計サマリーの計算
-  // 表示中のタブに対応するデータのみを集計する（購入と抽選で混ざらないようにする）
-  const stats = useMemo(() => {
-    if (tab === 'orders') {
-      const total = effectiveOrders.length
-      const unpaid = effectiveOrders.filter((o) => o.status === 'UNPAID').length
-      const paid = effectiveOrders.filter((o) => o.status === 'PAID').length
-      const cancelled = effectiveOrders.filter((o) => o.status === 'CANCELLED').length
-      return { total, unpaid, paid, cancelled }
+  // 統計サマリー。購入と抽選で集計する意味がまったく違うため、別々に持つ
+  // （同じキー名にまとめると「未払い」が当選を意味するなど、読んだときに混乱する）
+  const orderStats = useMemo(() => {
+    return {
+      total: effectiveOrders.length,
+      unpaid: effectiveOrders.filter((o) => o.status === 'UNPAID').length,
+      paid: effectiveOrders.filter((o) => o.status === 'PAID').length,
+      cancelled: effectiveOrders.filter((o) => o.status === 'CANCELLED').length,
     }
-    // 抽選: 当選(未払い+支払済) / 抽選待ち / 落選 / 期限切れ（当選後に未払いで失効）
-    const total = effectiveApplications.length
-    const won = effectiveApplications.filter((a) => a.status === 'UNPAID' || a.status === 'PAID').length
-    const waiting = effectiveApplications.filter((a) => a.status === 'WAITING').length
-    const lost = effectiveApplications.filter((a) => a.status === 'LOST').length
-    const expired = effectiveApplications.filter((a) => a.status === 'CANCELLED').length
-    return { total, unpaid: won, paid: waiting, cancelled: lost + expired }
-  }, [effectiveOrders, effectiveApplications, tab])
+  }, [effectiveOrders])
+
+  const lotteryStats = useMemo(() => {
+    return {
+      total: effectiveApplications.length,
+      // 当選 = 未払い + 支払済（抽選待ち・落選は含めない）
+      won: effectiveApplications.filter((a) => a.status === 'UNPAID' || a.status === 'PAID').length,
+      waiting: effectiveApplications.filter((a) => a.status === 'WAITING').length,
+      lost: effectiveApplications.filter((a) => a.status === 'LOST').length,
+      // 期限切れ = 当選後に支払わず失効したもの
+      expired: effectiveApplications.filter((a) => a.status === 'CANCELLED').length,
+    }
+  }, [effectiveApplications])
 
   // 注文ステータスで絞り込んだリスト
   const filteredOrders = useMemo(() => {
@@ -99,16 +103,16 @@ export default function MyPage() {
         {(
           tab === 'orders' ?
             [
-              { label: '購入合計', value: stats.total, tone: 'paper' },
-              { label: '未払い', value: stats.unpaid, tone: 'warning' },
-              { label: '支払済', value: stats.paid, tone: 'success' },
-              { label: 'キャンセル', value: stats.cancelled, tone: 'muted' },
+              { label: '購入合計', value: orderStats.total, tone: 'paper' },
+              { label: '未払い', value: orderStats.unpaid, tone: 'warning' },
+              { label: '支払済', value: orderStats.paid, tone: 'success' },
+              { label: 'キャンセル', value: orderStats.cancelled, tone: 'muted' },
             ]
           : [
-              { label: '応募合計', value: stats.total, tone: 'paper' },
-              { label: '当選', value: stats.unpaid, tone: 'lottery' },
-              { label: '抽選待ち', value: stats.paid, tone: 'warning' },
-              { label: '落選・期限切れ', value: stats.cancelled, tone: 'muted' },
+              { label: '応募合計', value: lotteryStats.total, tone: 'paper' },
+              { label: '当選', value: lotteryStats.won, tone: 'lottery' },
+              { label: '抽選待ち', value: lotteryStats.waiting, tone: 'warning' },
+              { label: '落選・期限切れ', value: lotteryStats.lost + lotteryStats.expired, tone: 'muted' },
             ]
         ).map((c) => (
           <div key={c.label} className="bg-ink-soft border border-white/[0.08] p-3.5 rounded-[4px]">
@@ -343,10 +347,20 @@ function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?
     }
   }, [isExpired, onExpired])
 
-  // 期限切れ後もサーバーのキャンセル反映まで5秒ごとに再取得を試みる
+  // 期限切れ後もサーバーのキャンセル反映まで5秒ごとに再取得する。
+  // 期限切れ処理（order_expirer）が動かなかった場合に永久に回り続けないよう、
+  // 上限（12回＝約1分）に達したら打ち切る
   useEffect(() => {
     if (!isExpired) return
-    const timer = setInterval(() => onExpired?.(), 5000)
+    let count = 0
+    const timer = setInterval(() => {
+      count += 1
+      if (count > 12) {
+        clearInterval(timer)
+        return
+      }
+      onExpired?.()
+    }, 5000)
     return () => clearInterval(timer)
   }, [isExpired, onExpired])
 

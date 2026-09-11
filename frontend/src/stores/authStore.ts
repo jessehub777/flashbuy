@@ -1,4 +1,4 @@
-// Auth store — manages authentication state (Cognito mock)
+// Auth store — 認証状態の管理（Cognito はバックエンド経由で利用する）
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types';

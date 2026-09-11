@@ -1,8 +1,8 @@
 # ==============================================================================
-# GitHub Actions 用 IAM Role（Lambda デプロイ / lambdas.yml が使用）
+# GitHub Actions 用 IAM Role（Lambda CD / lambda-cd.yml が使用）
 #
-# 役割: 2つの Lambda 関数のコード更新のみ。
-#       設定（メモリやVPC等）の変更は含めない（Terraform 側で管理するため）。
+# 役割: 2つの Lambda の「コード更新 → バージョン発行 → エイリアス(live)切り替え」のみ。
+#       設定（メモリ・VPC・環境変数）の変更は含めない（Terraform 側で管理するため）。
 # ==============================================================================
 
 data "aws_iam_openid_connect_provider" "github" {
@@ -39,11 +39,31 @@ resource "aws_iam_role_policy" "github_actions_lambda_dev" {
     Version = "2012-10-17"
     Statement = [
       {
+        # コード更新・バージョン発行（$LATEST を更新して publish する）
         Effect = "Allow"
         Action = [
-          "lambda:UpdateFunctionCode", # zip のアップロード
-          "lambda:GetFunction"         # 更新結果の確認
+          "lambda:UpdateFunctionCode",
+          "lambda:PublishVersion",
+          "lambda:GetFunction"
         ]
+        Resource = [
+          aws_lambda_function.lottery_drawer.arn,
+          aws_lambda_function.order_expirer.arn
+        ]
+      },
+      {
+        # リリース時のエイリアス切り替え（＝デプロイ）。ロールバックも同じ操作
+        Effect = "Allow"
+        Action = ["lambda:UpdateAlias", "lambda:GetAlias"]
+        Resource = [
+          aws_lambda_alias.lottery_drawer.arn,
+          aws_lambda_alias.order_expirer.arn
+        ]
+      },
+      {
+        # エイリアスの向き先（バージョン番号）を調べるための読み取り
+        Effect = "Allow"
+        Action = ["lambda:ListVersionsByFunction", "lambda:ListAliases"]
         Resource = [
           aws_lambda_function.lottery_drawer.arn,
           aws_lambda_function.order_expirer.arn

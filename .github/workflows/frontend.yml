@@ -17,11 +17,13 @@ on:
 permissions:
   contents: read
 
-# 同一PR/ブランチでの連続実行時は古いジョブをキャンセルしてリソースを節約し、
-# 同時デプロイによる競合を防止する
+# 同じブランチで続けて push されたときは古いジョブを止める（検査とビルドの無駄を削る）。
+# ただし main（production へのデプロイ）だけは止めない:
+# S3 の同期と CloudFront のキャッシュ削除が途中で切れると、古い index.html（no-cache）と
+# 新しい JS（immutable）が混ざり、画面が壊れた状態で公開されてしまう。
 concurrency:
   group: frontend-deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:

@@ -117,7 +117,7 @@ export default function Header() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ライブ、チケットを検索..."
+              placeholder="ライブ、イベントを検索..."
               className="input-dark flex-1 text-[13px] py-2"
             />
             <button

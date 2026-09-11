@@ -1,0 +1,183 @@
+# ==============================================================================
+# API CD（タグ push で自動デプロイ）
+#
+# v1.2.3 のようなタグを push すると起動する。タグ名がそのままバージョンになる。
+#
+# やること:
+#   1. go build / vet / test（リリース前の最終確認）
+#   2. イメージを「タグ名」と「latest」の 2 つで push
+#   3. 現在のタスク定義をコピーし、イメージだけ差し替えた新リビジョンを登録
+#   4. サービスを新リビジョンに差し替え、安定するまで待つ
+#
+# 3 でコピーするのがポイント: 環境変数・secrets・ロールは現在のリビジョン
+# （＝ terraform が管理している値）をそのまま引き継ぐので、repo 側に
+# 設定を二重定義しなくてよい。
+#
+# ロールバック: aws ecs update-service --task-definition flashbuy-api-dev:<旧リビジョン>
+# デプロイがヘルスチェックに通らない場合は、サービス側のデプロイサーキット
+# ブレーカーが前のリビジョンへ自動で戻す。
+# ==============================================================================
+
+name: API CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# リリースは「直列化」する。group に ref を含めないので、別のタグを続けて push しても
+# 前のリリースが終わるまで待つ（並行すると ECS の update-service が交錯し、
+# 後から打ったタグの方が先に反映される事故が起きる）。
+# リリースは途中でキャンセルしない（cancel-in-progress: false）
+concurrency:
+  group: api-cd
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECS_CLUSTER: flashbuy-cluster-dev
+  ECS_SERVICE: flashbuy-api-dev
+  ECS_TASK_FAMILY: flashbuy-api-dev
+  ECR_REPOSITORY: flashbuy-api-dev
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # リリース前の最終確認（ここが落ちたらデプロイしない）
+  # ---------------------------------------------------------------------------
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      # リリースタグは「main 上のコミット」にだけ打てる、という運用を機械的に守らせる。
+      # develop 直の未マージコミットをリリースしてしまう事故を防ぐ
+      - name: Check the tag is on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STATUS=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.status')
+          echo "main との比較結果: $STATUS"
+          case "$STATUS" in
+            behind|identical) echo "OK: タグは main 上のコミットを指しています" ;;
+            *) echo "::error::タグが main 上のコミットを指していません（status=$STATUS）"
+               echo "先に develop から main へマージしてください"
+               exit 1 ;;
+          esac
+
+  # ---------------------------------------------------------------------------
+  # イメージ作成 → タスク定義の新リビジョン登録 → デプロイ
+  # ---------------------------------------------------------------------------
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: development
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dockerfile は config-prod.yaml を COPY する。中身はタスク定義の
+      # 環境変数で上書きされるため、雛形をコピーするだけでよい
+      - name: Prepare config file
+        run: cp api/config-prod.yaml.example api/config-prod.yaml
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_API_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ランナーは amd64、イメージは arm64。ランタイムステージの apk add を
+      # 動かすのに QEMU によるエミュレーションが必要
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: api
+          platforms: linux/arm64
+          push: true
+          # タグ名（v1.2.3 など）= バージョン。latest は別名としても付ける
+          #（terraform がタスク定義を登録するときのフォールバック）
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.ref_name }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          # ビルドキャッシュを GitHub Actions のキャッシュに保存して、次回以降の
+          # ビルドを短縮する（scope 固定でブランチ/タグをまたいで共有される）
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Register task definition and deploy
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # 現在のリビジョンを取得（環境変数・secrets・ロールはこれを引き継ぐ）
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY" \
+            --query 'taskDefinition' > taskdef.json
+
+          # イメージだけ差し替える。登録時に不要な項目は削除する
+          jq --arg IMAGE "$REGISTRY/$ECR_REPOSITORY:$VERSION" \
+            'del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                 .compatibilities, .registeredAt, .registeredBy)
+             | .containerDefinitions[0].image = $IMAGE' \
+            taskdef.json > taskdef-new.json
+
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://taskdef-new.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "登録したリビジョン: $NEW_ARN"
+
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "$NEW_ARN"
+
+          # 安定するまで待つ（不安定ならここで job が落ちる）
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+
+          # 本当に反映されたかを確認する。
+          # デプロイサーキットブレーカーが旧リビジョンへ戻した場合も
+          # 「サービスは安定」と判定されてしまうため、ここで事実を突き合わせる
+          RUNNING_ARN=$(aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+          if [ "$RUNNING_ARN" != "$NEW_ARN" ]; then
+            echo "::error::デプロイが反映されていません（ロールバックされた可能性があります）"
+            echo "  登録したリビジョン: $NEW_ARN"
+            echo "  実際に稼働中      : $RUNNING_ARN"
+            exit 1
+          fi
+          echo "デプロイ確認OK: $NEW_ARN"

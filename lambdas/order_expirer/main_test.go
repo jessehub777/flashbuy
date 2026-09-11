@@ -25,18 +25,24 @@ func TestRestoreRedisStock_Increments(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	defer rdb.Close()
 
-	restoreRedisStock(context.Background(), rdb, "item-1")
+	// 1個戻す（基本的な使い方）
+	restoreRedisStock(context.Background(), rdb, "item-1", 1)
 
 	if got, _ := mr.Get("stock:item-1"); got != "4" {
 		t.Errorf("Redis在庫が戻っていません: got=%s want=4", got)
+	}
+
+	// まとめて3個戻す（同じ商品の注文が複数件ある場合）
+	restoreRedisStock(context.Background(), rdb, "item-1", 3)
+	if got, _ := mr.Get("stock:item-1"); got != "7" {
+		t.Errorf("Redis在庫が3個分戻っていません: got=%s want=7", got)
 	}
 }
 
 // TestRestoreRedisStock_NilClientIsNoop はRedis未接続（nil）でもpanicしないことを確認する。
 // （REDIS_HOST 未設定の環境では、DB側の取り消しだけを進める）
 func TestRestoreRedisStock_NilClientIsNoop(t *testing.T) {
-	restoreRedisStock(context.Background(), nil, "item-1")
-	restoreDBStock(nil, "item-1")
+	restoreRedisStock(context.Background(), nil, "item-1", 1)
 }
 
 // TestRestoreRedisStock_MissingKeyIsNoop は存在しないkeyに在庫を作らないことを確認する。
@@ -53,7 +59,7 @@ func TestRestoreRedisStock_MissingKeyIsNoop(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	defer rdb.Close()
 
-	restoreRedisStock(context.Background(), rdb, "item-unknown")
+	restoreRedisStock(context.Background(), rdb, "item-unknown", 1)
 
 	if mr.Exists("stock:item-unknown") {
 		t.Error("存在しないkeyに在庫を作ってはいけません")

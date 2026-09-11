@@ -507,7 +507,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
             />
           </div>
 
-          {/* 商品仕様（S3 Payload予定） */}
+          {/* 商品仕様（DB の detail_json に保存する） */}
           <div>
             <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
               商品仕様（1行に「項目: 値」）
@@ -520,7 +520,7 @@ function CreateModal({ type, onClose }: { type: 'flash' | 'lottery'; onClose: ()
             />
           </div>
 
-          {/* 注意事項・規約（S3 Payload予定） */}
+          {/* 注意事項・規約（DB の detail_json に保存する） */}
           <div>
             <label className="font-mono text-[11px] text-muted tracking-[1.5px] uppercase block mb-1">
               注意事項・購入規約（1行に1項目）

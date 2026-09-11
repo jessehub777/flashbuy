@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"flashbuy/lambdas/lottery_drawer/draw"
@@ -82,12 +83,28 @@ const drawScanSQLText = `
 
 func drawScanSQL() string { return drawScanSQLText }
 
+// DB は Lambda の「ウォームスタート（同じコンテナの再利用）」で使い回すためグローバルに持つ。
+// 毎回つなぎ直すと TLS の握り直しが発生して遅くなるため、最初の1回だけ作る。
+var (
+	dbOnce     sync.Once
+	dbInstance *sqlx.DB
+	dbErr      error
+)
+
+// getDB は RDS への接続を返す（2回目以降は使い回す）
+func getDB() (*sqlx.DB, error) {
+	dbOnce.Do(func() {
+		dbInstance, dbErr = connectDB()
+	})
+	return dbInstance, dbErr
+}
+
 func handler(ctx context.Context, event Event) error {
-	db, err := connectDB()
+	db, err := getDB()
 	if err != nil {
 		return fmt.Errorf("DB接続に失敗しました: %w", err)
 	}
-	defer db.Close()
+	// 接続は使い回すため Close しない（Lambda のコンテナが片付ける）
 
 	switch event.Mode {
 	case "draw", "":

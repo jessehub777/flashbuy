@@ -3,6 +3,7 @@ package controllers
 import (
 	"time"
 
+	"flashbuy/api/middleware"
 	"flashbuy/api/pkg/database"
 	"flashbuy/api/pkg/logger"
 	"flashbuy/api/pkg/response"
@@ -51,7 +52,7 @@ type LotteryOrderDTO struct {
 // GetMyFlashOrderList はログイン中のユーザーのフラッシュ注文一覧を返します
 // GET /api/v1/my/flashOrderList（AuthRequired 必須）
 func (h *MyController) GetMyFlashOrderList(c *gin.Context) {
-	userID := c.GetString("userId")
+	userID := middleware.GetUserID(c)
 	if userID == "" {
 		response.Error(c, response.CodeUnauthorized)
 		return
@@ -83,7 +84,7 @@ func (h *MyController) GetMyFlashOrderList(c *gin.Context) {
 // GetMyLotteryOrderList はログイン中のユーザーの抽選応募一覧を返します
 // GET /api/v1/my/lotteryOrderList（AuthRequired 必須）
 func (h *MyController) GetMyLotteryOrderList(c *gin.Context) {
-	userID := c.GetString("userId")
+	userID := middleware.GetUserID(c)
 	if userID == "" {
 		response.Error(c, response.CodeUnauthorized)
 		return

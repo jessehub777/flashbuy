@@ -26,6 +26,15 @@
 //	取り消しは UPDATE ... RETURNING で行い、対象行が返ったときだけ在庫を戻すため、
 //	在庫が二重に増えることもない。
 //
+// 在庫の戻し方（事故を防ぐための決まり）:
+//
+//	「注文の取消」と「DBの在庫を戻す」は必ず1つのトランザクションで行う。
+//	別々に commit すると、取消だけ成功して在庫が戻らない注文が生まれ、
+//	その注文は status が CANCELLED になって二度とスキャン対象にならない
+//	（＝在庫が永久に減ったままになる）。
+//	Redisの在庫は権威だが、キーが無ければ次回アクセス時にDBから作り直されるため、
+//	トランザクションの外で戻す（失敗してもDBの数字から復元できる）。
+//
 // 環境変数:
 //
 //	DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD / DB_SSLMODE
@@ -40,6 +49,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -119,17 +129,43 @@ type Event struct {
 	OrderID   string `json:"orderId"`   // cancel時のみ
 }
 
+// DB / Redis は Lambda の「ウォームスタート（同じコンテナの再利用）」で
+// 使い回すため、グローバルに持つ。
+// 毎回つなぎ直すと TLS の握り直しが発生し、1分ごとに起動するこの関数では無駄が大きい。
+// sync.Once で「最初の1回だけ」作る（Lambda は1コンテナ1並列なので同時生成は起きない）。
+var (
+	dbOnce     sync.Once
+	dbInstance *sqlx.DB
+	dbErr      error
+
+	redisOnce sync.Once
+	rdbClient *redis.Client // REDIS_HOST 未設定なら nil
+)
+
+// getDB は RDS への接続を返す（2回目以降は使い回す）
+func getDB() (*sqlx.DB, error) {
+	dbOnce.Do(func() {
+		dbInstance, dbErr = connectDB()
+	})
+	return dbInstance, dbErr
+}
+
+// getRedis は ElastiCache への接続を返す（2回目以降は使い回す）
+func getRedis() *redis.Client {
+	redisOnce.Do(func() {
+		rdbClient = connectRedis()
+	})
+	return rdbClient
+}
+
 func handler(ctx context.Context, event Event) error {
-	db, err := connectDB()
+	db, err := getDB()
 	if err != nil {
 		return fmt.Errorf("DB接続に失敗しました: %w", err)
 	}
-	defer db.Close()
+	rdb := getRedis()
 
-	rdb := connectRedis()
-	if rdb != nil {
-		defer rdb.Close()
-	}
+	// 接続は使い回すため Close しない（Lambda のコンテナが片付ける）
 
 	switch event.Mode {
 	case "cancel":
@@ -181,9 +217,19 @@ func handleCancel(ctx context.Context, db *sqlx.DB, rdb *redis.Client, event Eve
 // 取消判定と在庫戻し対象の特定が同時に済み、競合による二重の在庫戻しが起きない。
 // 対象行がない場合（存在しない / 期限前 / 支払済 / 取消済）は sql.ErrNoRows が返る。
 // restoreStock=true のときだけRedis/DBの在庫を戻す（抽選は枠数制で在庫を持たないため false）。
+//
+// 取消と在庫の戻しは1トランザクション。どちらかが失敗したら取消も取り消され、
+// 注文は UNPAID のまま残るため、次のスキャンで必ず再挑戦される。
 func cancelOne(ctx context.Context, db *sqlx.DB, rdb *redis.Client, updateSQL string, orderID string, restoreStock bool) (cancelResult, error) {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return cancelResult{}, fmt.Errorf("トランザクションの開始に失敗しました: %w", err)
+	}
+	// 成功時は Commit 済みなので、この Rollback は何もしない
+	defer tx.Rollback()
+
 	var restoreID *string // 抽選は NULL が返るためポインタで受ける
-	if err := db.Get(&restoreID, updateSQL, orderID); err != nil {
+	if err := tx.Get(&restoreID, updateSQL, orderID); err != nil {
 		// 条件に合致する行がない（存在しない / 期限前 / 支払済 / 取消済）＝正常
 		if err == sql.ErrNoRows {
 			slog.Info("取消対象なし（期限前・支払済・取消済のいずれか）", "orderId", orderID)
@@ -192,31 +238,39 @@ func cancelOne(ctx context.Context, db *sqlx.DB, rdb *redis.Client, updateSQL st
 		return cancelResult{}, fmt.Errorf("注文の取消に失敗しました: %w", err)
 	}
 
-	if !restoreStock || restoreID == nil {
-		return cancelResult{Canceled: true}, nil
+	if restoreStock && restoreID != nil {
+		if err := addDBStock(tx, *restoreID, 1); err != nil {
+			return cancelResult{}, err
+		}
 	}
-	restoreStockBoth(ctx, db, rdb, *restoreID)
+
+	if err := tx.Commit(); err != nil {
+		return cancelResult{}, fmt.Errorf("取消の確定に失敗しました: %w", err)
+	}
+
+	// Redis はトランザクションの外で戻す（DBと同じトランザクションには入れられないため）。
+	// 失敗してもキーが無ければ次回アクセス時にDBの数字から作り直される
+	if restoreStock && restoreID != nil {
+		restoreRedisStock(ctx, rdb, *restoreID, 1)
+	}
 	return cancelResult{Canceled: true}, nil
 }
 
 // handleScan は期限切れ注文をテーブルスキャンでまとめて取り消す（安全網）
 func handleScan(ctx context.Context, db *sqlx.DB, rdb *redis.Client) error {
 	// フラッシュセール（在庫の復元あり）
-	flashCanceled, restoreIDs, err := scanAndCancel(db, flashScanSQL(), scanBatchSize)
+	flashCanceled, stockCounts, err := scanAndCancelFlash(ctx, db, flashScanSQL(), scanBatchSize)
 	if err != nil {
 		return fmt.Errorf("フラッシュ注文のスキャンに失敗しました: %w", err)
 	}
 
-	// 取り消せた注文の在庫を、すぐに戻す。
-	// 注：このループは抽選スキャンの「前」に置くこと。
-	// 取消UPDATEは既にDBに反映済みのため、後段でエラーになると
-	// この注文は二度とスキャン対象にならず、在庫が戻されないまま残る。
-	for _, id := range restoreIDs {
-		restoreStockBoth(ctx, db, rdb, id)
+	// 在庫は「商品ごとに1回」戻す（100件同じ商品でも往復は1回で済む）
+	for flashID, count := range stockCounts {
+		restoreRedisStock(ctx, rdb, flashID, count)
 	}
 
 	// 抽選（在庫の復元なし。枠数制のため在庫を持たない）
-	lotteryCanceled, _, err := scanAndCancel(db, lotteryScanSQL(), scanBatchSize)
+	lotteryCanceled, err := scanAndCancelLottery(db, lotteryScanSQL(), scanBatchSize)
 	if err != nil {
 		return fmt.Errorf("抽選注文のスキャンに失敗しました: %w", err)
 	}
@@ -226,21 +280,69 @@ func handleScan(ctx context.Context, db *sqlx.DB, rdb *redis.Client) error {
 	return nil
 }
 
-// scanAndCancel は期限切れ注文を一括で取り消し、
-// 「取り消せた件数」と「在庫を戻す対象の restore_id」を返す。
-// UPDATE ... RETURNING なので「取消判定」と「対象ID取得」が原子的に済み、
-// 複数のLambdaが同時に走っても同じ行が二重に取り消されることはない
-// （UPDATE が行ロックを取り、後続は status='UNPAID' 条件で除外される）。
-//
-// 件数は「返ってきた行数」そのもの。抽選は restore_id が NULL のため、
-// 戻り値のIDリストだけを見ると0件に見えてしまう（実際は取り消せている）点に注意。
-func scanAndCancel(db *sqlx.DB, updateSQL string, limit int) (canceled int, restoreIDs []string, err error) {
-	var ids []*string // 抽選の NULL が混ざるためポインタで受ける
+// scanAndCancelLottery は期限切れの抽選注文をまとめて取り消す。
+// 抽選は枠数制で在庫を持たないため、取り消すだけでよい（トランザクションも不要）。
+func scanAndCancelLottery(db *sqlx.DB, updateSQL string, limit int) (canceled int, err error) {
+	var ids []*string
 	if err := db.Select(&ids, updateSQL, limit); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+// scanAndCancelFlash は期限切れのフラッシュ注文をまとめて取り消し、
+// 同じトランザクションの中で在庫も戻す。
+//
+// 戻り値の stockCounts は「商品ID → 戻した個数」。同じ商品の注文が100件あっても
+// UPDATE は1回で済むように、商品ごとに数をまとめてから戻す。
+//
+// 取り消しと在庫の戻しを分けて commit すると、片方だけ成功して
+// 「取消済みなのに在庫が戻らない」注文が生まれる。その注文は status が CANCELLED になり
+// 二度とスキャンにかからないため、在庫が永久に失われる。必ず1トランザクションで行う。
+func scanAndCancelFlash(ctx context.Context, db *sqlx.DB, updateSQL string, limit int) (canceled int, stockCounts map[string]int, err error) {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("トランザクションの開始に失敗しました: %w", err)
+	}
+	defer tx.Rollback()
+
+	var ids []*string // 抽選の NULL が混ざるためポインタで受ける
+	if err := tx.Select(&ids, updateSQL, limit); err != nil {
 		return 0, nil, err
 	}
-	canceled, restoreIDs = splitRestoreIDs(ids)
-	return canceled, restoreIDs, nil
+
+	// 商品ごとに「何個戻すか」を数える（同じ商品を何度もUPDATEしないため）
+	stockCounts = countByFlashID(ids)
+	for flashID, count := range stockCounts {
+		if err := addDBStock(tx, flashID, count); err != nil {
+			return 0, nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, nil, fmt.Errorf("取消の確定に失敗しました: %w", err)
+	}
+	return len(ids), stockCounts, nil
+}
+
+// addDBStock はDBの在庫を n 個戻す（同じトランザクションの中で呼ぶ）
+func addDBStock(tx *sqlx.Tx, flashID string, n int) error {
+	if _, err := tx.Exec(`UPDATE flash_items SET stock = stock + $1 WHERE id = $2`, n, flashID); err != nil {
+		return fmt.Errorf("DB在庫の復元に失敗しました: %w", err)
+	}
+	return nil
+}
+
+// countByFlashID は取り消せた注文を「商品ID → 件数」にまとめる。
+// 100件同じ商品でも UPDATE 1回で済むようにするための集計。
+func countByFlashID(ids []*string) map[string]int {
+	counts := make(map[string]int)
+	for _, id := range ids {
+		if id != nil {
+			counts[*id]++
+		}
+	}
+	return counts
 }
 
 // splitRestoreIDs は取り消せた行の結果を「件数」と「在庫を戻すID一覧」に分ける。
@@ -256,44 +358,27 @@ func splitRestoreIDs(ids []*string) (canceled int, restoreIDs []string) {
 	return len(ids), restoreIDs
 }
 
-// restoreStockBoth はRedis（権威）とDB（最終確定）の両方で在庫を1つ戻す。
-func restoreStockBoth(ctx context.Context, db *sqlx.DB, rdb *redis.Client, flashID string) {
-	restoreRedisStock(ctx, rdb, flashID)
-	restoreDBStock(db, flashID)
-}
-
-// restoreRedisStock はRedisの在庫を1つ戻す。
+// restoreRedisStock はRedisの在庫を n 個戻す。
 // 未接続（rdb=nil）なら何もしない（REDIS_HOST 未設定環境のフォールバック）。
 // 失敗してもエラーにはしない。注文の取消自体は確定しているため。
-// ただし自動的には再試行されない点に注意: 注文は CANCELLED になり、
-// 次回スキャンの条件（status='UNPAID'）に合致しなくなるため、取りこぼしは残る。
-func restoreRedisStock(ctx context.Context, rdb *redis.Client, flashID string) {
+// 取りこぼしても、キーが無ければ次回アクセス時にDBの数字から作り直される。
+func restoreRedisStock(ctx context.Context, rdb *redis.Client, flashID string, n int) {
 	if rdb == nil {
 		return
 	}
 	key := "stock:" + flashID
-	// API側（pkg/cache/stock.go の IncrStock）と同じスクリプトを使う。
-	// 単純な INCR は key が存在しない場合に 1 から作ってしまい、
-	// DBと食い違う架空の在庫が生まれるため、key が無い場合は何もしない。
+	// API側（pkg/cache/stock.go）と同じ考え方: 単純な INCRBY は
+	// key が存在しない場合に n から作ってしまい、DBと食い違う架空の在庫が生まれるため、
+	// key が無い場合は何もしない。
 	const script = `
 		local stock = redis.call('GET', KEYS[1])
 		if not stock then
 			return -1 -- 未プレヒート（何もしない）
 		end
-		return redis.call('INCR', KEYS[1])
+		return redis.call('INCRBY', KEYS[1], ARGV[1])
 	`
-	if _, err := rdb.Eval(ctx, script, []string{key}).Result(); err != nil {
-		slog.Warn("Redis在庫の復元に失敗しました", "flashId", flashID, "error", err)
-	}
-}
-
-// restoreDBStock はDBの在庫を1つ戻す（Redisと同様、失敗してもログのみ）
-func restoreDBStock(db *sqlx.DB, flashID string) {
-	if db == nil {
-		return
-	}
-	if _, err := db.Exec(`UPDATE flash_items SET stock = stock + 1 WHERE id = $1`, flashID); err != nil {
-		slog.Warn("DB在庫の復元に失敗しました", "flashId", flashID, "error", err)
+	if _, err := rdb.Eval(ctx, script, []string{key}, n).Result(); err != nil {
+		slog.Warn("Redis在庫の復元に失敗しました", "flashId", flashID, "count", n, "error", err)
 	}
 }
 

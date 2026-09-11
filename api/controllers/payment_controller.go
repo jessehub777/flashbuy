@@ -74,6 +74,24 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 		return
 	}
 
+	// まず「その注文が今支払える状態か」を確認する。
+	// ランダムな成否判定より先に調べないと、期限切れの注文なのに
+	// 「決済失敗（＝もう一度押せる）」と表示されてしまう。
+	// 支払いは高頻度の操作ではないため、この確認のSQLは1本だけにしている
+	switch checkPayable(req.OrderType, req.OrderID, userID) {
+	case payableExpired:
+		logger.Warn("支払期限切れの注文への支払いを拒否しました",
+			zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
+		response.Error(c, response.CodeOrderExpired)
+		return
+	case payableMissing:
+		// 対象の注文がない（存在しない / 支払い済み / 他人の注文）
+		logger.Warn("支払い対象の注文が見つかりません",
+			zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
+		response.Error(c, response.CodeInvalidParam)
+		return
+	}
+
 	// 40%の確率で決済失敗（モックのためランダム）
 	if rand.IntN(100) < 40 {
 		logger.Info("モック決済が失敗しました",
@@ -94,14 +112,13 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		// 期限切れで弾かれた場合は、ランダムな決済失敗と区別できる専用コードを返す
-		if isOrderExpired(req.OrderType, req.OrderID, userID) {
+		// 確認した直後に期限切れになった等の競合。理由を調べてから返す
+		if checkPayable(req.OrderType, req.OrderID, userID) == payableExpired {
 			logger.Warn("支払期限切れの注文への支払いを拒否しました",
 				zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
 			response.Error(c, response.CodeOrderExpired)
 			return
 		}
-		// 対象の注文がない（存在しない / 支払い済み / 他人の注文）
 		logger.Warn("支払い対象の注文が見つかりません",
 			zap.String("orderType", req.OrderType), zap.String("orderId", req.OrderID), zap.String("userId", userID))
 		response.Error(c, response.CodeInvalidParam)
@@ -118,28 +135,42 @@ func (h *PaymentController) MockPay(c *gin.Context) {
 	})
 }
 
-// isOrderExpired は対象の注文が支払期限切れかどうかを調べます。
-// 更新が0件だった理由を「期限切れ」と「その他の理由（存在しない等）」で
-// 区別するために使います。期限切れ処理済み（CANCELLED）の注文も期限切れとして扱います。
-func isOrderExpired(orderType, orderID, userID string) bool {
+// 支払い可否の判定結果（checkPayable の戻り値）
+const (
+	payableOK      = "ok"      // 未払いで期限内。支払える
+	payableExpired = "expired" // 期限切れ（期限切れ処理で CANCELLED になったものも含む）
+	payableMissing = "missing" // 存在しない / 他人の注文 / すでに支払い済み
+)
+
+// checkPayable は対象の注文が「今支払えるか」を1回のSQLで調べます。
+// 期限切れは「ランダムな決済失敗」とは別の理由なので、専用コードを返すために区別します。
+func checkPayable(orderType, orderID, userID string) string {
 	var query string
 	switch orderType {
 	case "flash":
-		query = `SELECT 1 FROM flash_orders
-		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED') AND expires_at < now()`
+		query = `SELECT CASE
+		           WHEN status = 'CANCELLED' THEN 'expired'
+		           WHEN expires_at < now() THEN 'expired'
+		           ELSE 'ok' END
+		         FROM flash_orders
+		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED')`
 	case "lottery":
-		query = `SELECT 1 FROM lottery_orders
-		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED') AND pay_deadline < now()`
+		query = `SELECT CASE
+		           WHEN status = 'CANCELLED' THEN 'expired'
+		           WHEN pay_deadline < now() THEN 'expired'
+		           ELSE 'ok' END
+		         FROM lottery_orders
+		         WHERE id = $1 AND user_id = $2 AND status IN ('UNPAID', 'CANCELLED')`
 	default:
-		return false
+		return payableMissing
 	}
 
-	var exists int
-	if err := database.DB.Get(&exists, query, orderID, userID); err != nil {
-		// 見つからない場合（sql.ErrNoRows）は期限切れではない
-		return false
+	var state string
+	if err := database.DB.Get(&state, query, orderID, userID); err != nil {
+		// 見つからない場合（sql.ErrNoRows）は「対象なし」として扱う
+		return payableMissing
 	}
-	return true
+	return state
 }
 
 // generateTransactionID はトランザクションIDを生成します（例: TXN-3f8a9c2d）

@@ -68,7 +68,17 @@ export const useOrderStore = create<OrderState>((set, get) => ({
         applyStatus: 'applied',
         appliedIds: new Set([...s.appliedIds, lotteryId]),
       }))
-    } catch {
+    } catch (e) {
+      // 重複応募（10002）はエラーではなく「すでに応募済み」として扱う。
+      // サーバー側で UNIQUE(user_id, lottery_id) により弾かれただけなので、
+      // 画面は「応募済み」の表示にするのが正しい
+      if (e instanceof ApiError && e.code === 10002) {
+        set((s) => ({
+          applyStatus: 'applied',
+          appliedIds: new Set([...s.appliedIds, lotteryId]),
+        }))
+        return
+      }
       set({ applyStatus: 'error' })
     }
   },

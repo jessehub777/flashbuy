@@ -44,7 +44,10 @@ resource "aws_iam_role_policy" "github_actions_lambda_dev" {
         Action = [
           "lambda:UpdateFunctionCode",
           "lambda:PublishVersion",
-          "lambda:GetFunction"
+          "lambda:GetFunction",
+          # コード更新の完了待ち（aws lambda wait function-updated）が
+          # 内部でこの API を呼ぶ。無いと AccessDenied で落ちる
+          "lambda:GetFunctionConfiguration"
         ]
         Resource = [
           aws_lambda_function.lottery_drawer.arn,
@@ -53,9 +56,17 @@ resource "aws_iam_role_policy" "github_actions_lambda_dev" {
       },
       {
         # リリース時のエイリアス切り替え（＝デプロイ）。ロールバックも同じ操作
+        #
+        # 注意: UpdateAlias / GetAlias を IAM が判定するときのリソースは
+        # 「エイリアス ARN（…:live）」ではなく「関数 ARN」になる
+        #（エイリアスは関数の子資源扱い）。
+        # そのため :live 付きの ARN だけを書くと AccessDenied になる（実際に発生）。
+        # 両方書いておく。
         Effect = "Allow"
         Action = ["lambda:UpdateAlias", "lambda:GetAlias"]
         Resource = [
+          aws_lambda_function.lottery_drawer.arn,
+          aws_lambda_function.order_expirer.arn,
           aws_lambda_alias.lottery_drawer.arn,
           aws_lambda_alias.order_expirer.arn
         ]

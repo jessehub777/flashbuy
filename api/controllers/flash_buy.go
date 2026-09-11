@@ -47,12 +47,14 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		return
 	}
 
-	// 1. 商品を取得（存在確認 + 販売期間チェック）
+	// 1. 商品を取得（存在確認 + 販売期間チェック + 価格）
 	//    抽選応募（ApplyLottery）と同じ形式で、開始前・終了後は購入不可にする
+	//    値段もここで一緒に取る（後から別のSQLで取り直すとDBへの往復が増えるため）
 	var startsAt, endsAt time.Time
+	var price int
 	err := database.DB.QueryRow(
-		`SELECT starts_at, ends_at FROM flash_items WHERE id = $1`, req.SaleID,
-	).Scan(&startsAt, &endsAt)
+		`SELECT price, starts_at, ends_at FROM flash_items WHERE id = $1`, req.SaleID,
+	).Scan(&price, &startsAt, &endsAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			logger.Warn("フラッシュ商品が見つかりません", zap.String("saleId", req.SaleID))
@@ -88,16 +90,7 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		return
 	}
 
-	// 3. 商品価格を取得（在庫をロック済みなので、価格が取れない場合はロックを戻す）
-	var price int
-	if err := database.DB.Get(&price, "SELECT price FROM flash_items WHERE id = $1", req.SaleID); err != nil {
-		logger.Error("商品価格の取得に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
-		_ = cache.IncrStock(req.SaleID) // ロックを戻す
-		response.Error(c, response.CodeSystemError)
-		return
-	}
-
-	// 4. 注文作成とDB在庫の減算を同一トランザクションで行う
+	// 3. 注文作成とDB在庫の減算を同一トランザクションで行う
 	//    （どちらかが失敗したら両方ロールバックし、Redisのロックも戻す）
 	tx, err := database.DB.Beginx()
 	if err != nil {

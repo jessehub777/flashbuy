@@ -60,18 +60,16 @@ resource "aws_iam_role_policy" "github_actions_api_dev" {
         Resource = [aws_ecr_repository.api.arn]
       },
       {
-        # タグリリース時に新しいリビジョンを登録する。対象は API のタスク定義のみ
-        #（:リビジョン無しの ARN と :* の両方を書くのは、ファミリー名だけの
-        #  Describe と、リビジョン指定の Register の両方に一致させるため）
-        Effect = "Allow"
-        Action = [
-          "ecs:RegisterTaskDefinition",
-          "ecs:DescribeTaskDefinition"
-        ]
-        Resource = [
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-api-${var.environment}",
-          "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task-definition/${var.project_name}-api-${var.environment}:*"
-        ]
+        # タグリリース時にタスク定義を読んで、新しいリビジョンを登録する。
+        #
+        # 注意: この2つの API は「ファミリー名だけ」で呼ぶと、
+        # IAM の判定ではリソースが * になる（リビジョン番号が未確定のため）。
+        # そのため task-definition/flashbuy-api-dev を Resource に書いても
+        # AccessDenied になる（実際に出たエラー: on resource: *）。
+        # ファミリーで絞れない分、action をこの2つだけに絞って最小限にする。
+        Effect   = "Allow"
+        Action   = ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"]
+        Resource = ["*"]
       },
       {
         # サービスを新リビジョンに差し替える（対象は API サービスのみ）

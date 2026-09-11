@@ -212,7 +212,7 @@ export default function FlashDetail() {
         <div className="mt-12 pt-8 border-t border-white/[0.1] animate-fade-in">
           <h2 className="font-oswald font-semibold text-[20px] text-paper mb-6 tracking-[0.5px] flex items-center gap-2">
             <span className="w-1.5 h-4 bg-flash rounded-full inline-block" />
-            商品仕様・注意事項（S3 Payload）
+            商品仕様・注意事項
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-ink-soft border border-white/[0.08] rounded-[6px] p-6">
             {/* 仕様 Key-Value */}

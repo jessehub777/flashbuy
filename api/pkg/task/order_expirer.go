@@ -97,10 +97,22 @@ func processExpiredLotteryOrder(o expiredLotteryOrder) {
 	logger.Info("期限切れ抽選注文をキャンセルしました", zap.String("orderId", o.ID))
 }
 
-// processExpiredOrder は1件の期限切れ注文をキャンセルして在庫を戻します
+// processExpiredOrder は1件の期限切れ注文をキャンセルして在庫を戻します。
+//
+// キャンセルと在庫の戻しは必ず1トランザクションで行う。
+// 別々にcommitすると「キャンセルだけ成功して在庫が戻らない」注文が生まれ、
+// その注文は status が CANCELLED になって二度とスキャン対象にならない
+// （＝在庫が永久に減ったままになる）。
 func processExpiredOrder(o expiredOrder) {
+	tx, err := database.DB.Beginx()
+	if err != nil {
+		logger.Error("トランザクションの開始に失敗しました", zap.String("orderId", o.ID), zap.Error(err))
+		return
+	}
+	defer tx.Rollback()
+
 	// 注文をキャンセル（WHERE status='UNPAID' で二重処理を防ぐ）
-	res, err := database.DB.Exec(
+	res, err := tx.Exec(
 		"UPDATE flash_orders SET status = 'CANCELLED', updated_at = now() WHERE id = $1 AND status = 'UNPAID'", o.ID)
 	if err != nil {
 		logger.Error("期限切れ注文のキャンセルに失敗しました", zap.String("orderId", o.ID), zap.Error(err))
@@ -108,18 +120,26 @@ func processExpiredOrder(o expiredOrder) {
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		// すでに別処理でキャンセル済み
+		// すでに別処理でキャンセル済み（コミットするものは何もない）
 		return
 	}
 
-	// ロック済みの在庫をRedisとDBの両方で戻す
-	if err := cache.IncrStock(o.FlashID); err != nil {
-		logger.Error("Redis在庫の復元に失敗しました", zap.String("flashId", o.FlashID), zap.Error(err))
-	}
-	if _, err := database.DB.Exec(
+	// DBの在庫を戻す（同じトランザクション）
+	if _, err := tx.Exec(
 		"UPDATE flash_items SET stock = stock + 1 WHERE id = $1", o.FlashID); err != nil {
 		logger.Error("DB在庫の復元に失敗しました", zap.String("flashId", o.FlashID), zap.Error(err))
 		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		logger.Error("期限切れ処理の確定に失敗しました", zap.String("orderId", o.ID), zap.Error(err))
+		return
+	}
+
+	// Redisの在庫はトランザクションの外で戻す（DBと同じトランザクションには入れられないため）。
+	// 失敗してもキーが無ければ次回アクセス時にDBの数字から作り直される
+	if err := cache.IncrStock(o.FlashID); err != nil {
+		logger.Error("Redis在庫の復元に失敗しました", zap.String("flashId", o.FlashID), zap.Error(err))
 	}
 
 	logger.Info("期限切れ注文をキャンセルし、在庫を戻しました",

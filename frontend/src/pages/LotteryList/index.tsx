@@ -153,7 +153,7 @@ export default function LotteryList() {
       <div className="px-10 pb-12 max-sm:px-5">
         <div className="flex items-baseline gap-[14px] mb-6">
           <h2 className="font-oswald font-semibold text-[20px] tracking-[0.5px] text-lottery">
-            {selectedCategory === 'ALL' ? '応募受付中・抽選中のアイテム' : selectedCategory}
+            {selectedCategory === 'ALL' ? '予告・受付中・抽選中のアイテム' : selectedCategory}
           </h2>
           {!isLoading && <span className="font-mono text-[12px] text-muted">{filtered.length} 件該当</span>}
         </div>

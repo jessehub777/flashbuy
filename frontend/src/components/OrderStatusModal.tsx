@@ -1,5 +1,6 @@
 // OrderStatusModal — shows flash buy result and order status
-// State machine: QUEUING → QUEUED → (WAITING via Lambda) → PAID after payment
+// 購入の状態遷移: QUEUING（在庫確認中）→ QUEUED（在庫確保・未払い）→ 決済成功で PAID
+// 支払期限（15分）を過ぎると order_expirer が注文を CANCELLED にする
 import { useEffect } from 'react'
 import { useOrderStore } from '../stores/orderStore'
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
@@ -31,6 +31,14 @@ export default function FlashDetail() {
 
   const { isExpired } = useCountdown(sale?.endsAt ?? '')
 
+  // 現在時刻を1秒ごとに更新する（ローカル時刻の再計算のみ。サーバー再取得はしない）
+  // 販売開始・終了の時刻をまたいだときに、カウントダウンとボタンを自動で切り替えるため
+  const [now, setNow] = useState(() => dayjs())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(dayjs()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   const handleBuy = async () => {
     if (!isLoggedIn()) {
       // ログインしていない場合はログイン画面に移動する
@@ -58,8 +66,8 @@ export default function FlashDetail() {
   if (!sale) return <div className="p-10 text-muted font-mono">指定された商品が見つかりません</div>
 
   const isSoldOut = sale.stock <= 0
-  const isEnded = sale.status === 'ENDED' || isExpired || dayjs().isAfter(dayjs(sale.endsAt))
-  const isUpcoming = sale.status === 'UPCOMING' || dayjs().isBefore(dayjs(sale.startsAt))
+  const isEnded = sale.status === 'ENDED' || isExpired || now.isAfter(dayjs(sale.endsAt))
+  const isUpcoming = sale.status === 'UPCOMING' || now.isBefore(dayjs(sale.startsAt))
   const stockRatio = sale.totalStock > 0 ? sale.stock / sale.totalStock : 0
   const urgency =
     stockRatio < 0.1 ? 'critical'
@@ -149,10 +157,27 @@ export default function FlashDetail() {
 
           <p className="text-[14px] text-muted leading-[1.8] mb-8">{sale.description}</p>
 
-          {/* Countdown */}
+          {/* Countdown — 販売前は「開始まで」、販売中は「終了まで」、終了後は終了表示 */}
           <div className="bg-ink-soft border border-white/[0.08] rounded-[4px] p-4 mb-6">
-            <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3">販売終了まで</div>
-            <Countdown targetDate={sale.endsAt} label="" showDays={false} />
+            {isEnded ?
+              <>
+                <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3 font-semibold">
+                  ステータス: 販売終了
+                </div>
+                <Countdown targetDate={sale.endsAt} label="" showDays={false} expiredText="販売終了" />
+              </>
+            : isUpcoming ?
+              <>
+                <div className="font-mono text-[10px] text-purple-400 tracking-[1.5px] uppercase mb-3">
+                  販売開始まで
+                </div>
+                <Countdown targetDate={sale.startsAt} label="" showDays={false} expiredText="まもなく開始" />
+              </>
+            : <>
+                <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3">販売終了まで</div>
+                <Countdown targetDate={sale.endsAt} label="" showDays={false} expiredText="販売終了" />
+              </>
+            }
           </div>
 
           <StockDots stock={sale.stock} totalStock={sale.totalStock} type="flash" className="mb-5" />
@@ -177,7 +202,7 @@ export default function FlashDetail() {
             : '今すぐ購入'}
           </button>
           <p className="font-mono text-[10px] text-muted mt-2 text-center tracking-[0.5px]">
-            一人につき1点まで / 在庫がなくなり次第終了
+            在庫がなくなり次第終了
           </p>
         </div>
       </div>

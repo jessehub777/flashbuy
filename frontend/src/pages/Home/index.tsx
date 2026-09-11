@@ -60,26 +60,29 @@ export default function Home() {
       <section className="px-10 pt-14 pb-14 border-b border-white/[0.12] bg-gradient-to-b from-flash/[0.05] to-transparent max-sm:px-5 max-sm:pt-8 max-sm:pb-10">
         {/* 技術ハイライト・アーキテクチャバッジ */}
         <div className="flex flex-wrap items-center gap-2.5 mb-5">
-          <span className="font-mono text-[11px] tracking-[1.5px] uppercase bg-flash/15 text-flash border border-flash/30 px-3 py-1 rounded-[2px] font-semibold flex items-center gap-1.5">
+          <span className="font-mono text-[11px] tracking-[0.5px] bg-flash/15 text-flash border border-flash/30 px-3 py-1 rounded-[2px] font-semibold flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-flash animate-pulse" />
-            HIGH-CONCURRENCY ARCHITECTURE
-          </span>
-          <span className="font-mono text-[11px] tracking-[0.5px] text-paper/80 bg-white/[0.05] border border-white/[0.1] px-2.5 py-1 rounded-[2px]">
-            ⚡ 大量同時アクセス対応
+            ⚡ ハイコンカレンシー
           </span>
           <span className="font-mono text-[11px] tracking-[0.5px] text-paper/80 bg-white/[0.05] border border-white/[0.1] px-2.5 py-1 rounded-[2px] hidden sm:inline-block">
-            🎯 フェアな自動抽選エンジン
+            🎯 公平な自動抽選エンジン
           </span>
           <span className="font-mono text-[11px] tracking-[0.5px] text-paper/80 bg-white/[0.05] border border-white/[0.1] px-2.5 py-1 rounded-[2px] hidden md:inline-block">
-            🛡️ Redis Luaによる原子在庫制御
+            🛡️ Redis Lua によるアトミックな在庫管理
           </span>
         </div>
 
-        <h1 className="font-oswald font-semibold text-[56px] leading-[1.05] tracking-[-0.5px] max-w-[720px] mb-[12px] max-sm:text-[34px]">
-          整理券は、もう並ばない。
+        <h1 className="font-oswald font-semibold text-[56px] leading-[1.05] tracking-[-0.5px] max-w-[1820px] mb-[12px] max-sm:text-[34px]">
+          逃したくない限定品を、
+          <span className="text-flash">早い者勝ちで。</span>
+          <br />
+          競うより、<span className="text-lottery">公平な抽選で。</span>
         </h1>
-        <p className="text-muted text-[15px] max-w-[540px] mb-8 leading-[1.7] max-sm:text-[14px]">
-          フラッシュセールは早い者勝ち、抽選は公平な運。大量アクセス下でも高速に動作する、次世代の限定販売プラットフォーム。
+        <p className="text-muted text-[15px] max-w-[940px] leading-[1.7] max-sm:text-[14px]">
+          React / Go / AWS（ECS / Lambda / RDS / ElastiCache）/ Terraform 構成。
+        </p>
+        <p className="text-muted text-[15px] max-w-[940px] mb-8 leading-[1.7] max-sm:text-[14px]">
+          Redis Lua によるアトミックな在庫管理、EventBridge + Lambda の非同期処理。技術検証（PoC）として構築。
         </p>
 
         {/* 検索バー */}
@@ -101,7 +104,7 @@ export default function Home() {
         {/* 人気カテゴリー・クイック検索タグ（Top10データからフロントエンドで動的に抽出） */}
         {popularCategories.length > 0 && (
           <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="font-mono text-[11px] text-muted tracking-[1px] uppercase mr-1">POPULAR:</span>
+            <span className="font-mono text-[11px] text-muted tracking-[1px] uppercase mr-1">人気のタグ:</span>
             {popularCategories.map((cat) => (
               <button
                 key={cat}

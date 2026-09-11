@@ -42,7 +42,6 @@ function App() {
     // 起動時にトークンの期限切れを検知したら即ログアウト
     // （有効期限切れのトークンで「ログイン済み」のまま表示されるのを防ぐ）
     const token = useAuthStore.getState().token
-    void token
     if (token && isTokenExpired(token)) {
       void useAuthStore.getState().logout()
       window.location.href = '/login'

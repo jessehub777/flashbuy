@@ -1,6 +1,6 @@
 // PaymentMockModal — mock payment flow
-// Demonstrates understanding of payment state machine: WAITING → PAID / TIMEOUT
-// NOT connected to any real payment API (portfolio demo only)
+// 決済状態の遷移: UNPAID（未払い）→ PROCESSING → PAID / FAILED / EXPIRED
+// 実際の決済APIには接続していない（ポートフォリオ用のモック。成功・失敗はサーバーが返す）
 import { useState } from 'react'
 import { useOrderStore } from '../stores/orderStore'
 import type { PaymentMethod } from '../types'

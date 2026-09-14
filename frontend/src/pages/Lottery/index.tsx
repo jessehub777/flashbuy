@@ -36,17 +36,14 @@ export default function LotteryDetail() {
 
   const alreadyApplied =
     applied || (id ? isApplied(id) : false) || myApplications.some((a) => a.lotteryId === id)
-  // 推定当選率:
-  //   - 応募者数が0 → 「—」（未定）
-  //   - 応募者数 <= 当選枠 → 100%（応募すれば必ず当選）
-  //   - 応募者数 > 当選枠 → 当選枠 / 応募者数
-  const winRate = item
-    ? item.applyCount === 0
-      ? '—'
-      : item.applyCount <= item.winnerCount
-        ? '100'
-        : ((item.winnerCount / item.applyCount) * 100).toFixed(1)
-    : '0'
+  // 当選倍率（応募者数 ÷ 当選枠）。読み方は求人倍率と同じ:
+  //   - 応募者数が 0        → まだ応募が無いので「—」
+  //   - 1倍未満（枠 ≥ 応募）→ 応募した人が全員当選する。数字ではなく「全員当選」と出す
+  //   - それ以外            → 応募者数 / 当選枠 を小数1桁で
+  const oddsValue =
+    item && item.applyCount > 0 && item.winnerCount > 0 ? item.applyCount / item.winnerCount : null
+  const isAllWin = oddsValue !== null && oddsValue < 1
+  const odds = oddsValue === null ? '—' : oddsValue.toFixed(1)
 
   const handleApply = async () => {
     if (!isLoggedIn()) {
@@ -146,20 +143,38 @@ export default function LotteryDetail() {
             }
           </div>
 
-          {/* 当選確率・応募枠の数値カード */}
+          {/* 当選枠・応募者数・当選倍率の数値カード */}
           <div className="mt-4 bg-ink-soft border border-white/[0.08] rounded-[4px] p-4">
             <div className="grid grid-cols-3 gap-4 text-center">
+              {/* 数字の行は3列とも同じ高さの箱に入れて中央に置く。
+                  高さを揃えないと、「全員当選」のように文字サイズが変わる列だけ
+                  上下にずれて見える（垂直位置が合わなくなる） */}
               <div>
-                <div className="font-oswald font-bold text-[28px] text-lottery">{item.winnerCount}</div>
+                <div className="flex h-[34px] items-center justify-center font-oswald font-bold text-[28px] text-lottery">
+                  {item.winnerCount}
+                </div>
                 <div className="font-mono text-[10px] text-muted tracking-[1px]">当選枠</div>
               </div>
               <div>
-                <div className="font-oswald font-bold text-[28px] text-paper">{item.applyCount.toLocaleString()}</div>
+                <div className="flex h-[34px] items-center justify-center font-oswald font-bold text-[28px] text-paper">
+                  {item.applyCount.toLocaleString()}
+                </div>
                 <div className="font-mono text-[10px] text-muted tracking-[1px]">応募者数</div>
               </div>
               <div>
-                <div className="font-oswald font-bold text-[28px] text-paper">{winRate}%</div>
-                <div className="font-mono text-[10px] text-muted tracking-[1px]">推定当選率</div>
+                <div className="flex h-[34px] items-center justify-center">
+                  <span
+                    className={
+                      isAllWin ?
+                        'text-[16px] font-bold text-paper'
+                      : 'font-oswald font-bold text-[28px] text-paper'
+                    }>
+                    {isAllWin ? '全員当選' : odds}
+                  </span>
+                </div>
+                <div className="font-mono text-[10px] text-muted tracking-[1px]">
+                  {isAllWin ? '応募状況' : '当選倍率'}
+                </div>
               </div>
             </div>
           </div>
@@ -271,7 +286,6 @@ export default function LotteryDetail() {
         </div>
       </div>
 
-      {/* S3静的拡張データ：商品スペック・応募規約 (シングルSKU汎用設計) */}
       {(item.specifications?.length || item.rules?.length) && (
         <div className="mt-12 pt-8 border-t border-white/[0.1] animate-fade-in">
           <h2 className="font-oswald font-semibold text-[20px] text-paper mb-6 tracking-[0.5px] flex items-center gap-2">
@@ -316,7 +330,9 @@ export default function LotteryDetail() {
             <p className="text-[14px] text-muted mb-1">{item.name}</p>
             <p className="font-mono text-[11px] text-muted mb-5 tracking-[0.5px]">
               {item.applyCount > 0 ?
-                `現在の当選確率: 約 ${winRate}%（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
+                isAllWin ?
+                  `現在の応募状況: 応募者全員が当選（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
+                : `現在の当選倍率: 約 ${odds}倍（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
               : `当選枠 ${item.winnerCount}名（応募者募集中）`}
             </p>
             <div className="flex gap-3">

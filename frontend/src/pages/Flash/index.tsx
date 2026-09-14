@@ -3,7 +3,6 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import Countdown from '../../components/Countdown'
-import StockDots from '../../components/StockDots'
 import OrderStatusModal from '../../components/OrderStatusModal'
 import PaymentMockModal from '../../components/PaymentMockModal'
 import { api } from '../../services/api'
@@ -89,11 +88,13 @@ export default function FlashDetail() {
           <div
             className="w-full aspect-square rounded-[6px] overflow-hidden relative shadow-xl"
             style={{ background: 'linear-gradient(135deg, #e4e1d5, #cfccc0)' }}>
-            {/* ステータスタグ（売切 / 販売終了 / 予告 / SALE） */}
+            {/* ステータスタグ（売切/販売終了: ダーク, 予告: パープル, SALE: フラッシュ） */}
+            {/* 予告をパープルにしているのは、一覧カード（TicketCard）・抽選詳細・
+                この下の「販売開始まで」と同じ色に揃えるため */}
             <div
               className={`absolute top-4 right-4 font-mono text-[10px] tracking-[1.5px] font-semibold px-[9px] py-1 rounded-[2px] z-10 ${
                 isSoldOut || isEnded ? 'bg-black/75 text-white/60 border border-white/20'
-                : isUpcoming ? 'bg-lottery text-paper'
+                : isUpcoming ? 'bg-purple-500 text-white shadow-sm'
                 : 'bg-flash text-paper'
               }`}>
               {isSoldOut ?
@@ -180,7 +181,11 @@ export default function FlashDetail() {
             }
           </div>
 
-          <StockDots stock={sale.stock} totalStock={sale.totalStock} type="flash" className="mb-5" />
+          {/* 購入ボタンの補足: 購入数の上限がないことを明示する（業務仕様）
+              在庫の数字は左側の在庫残量メーターにまとめているため、ここには置かない */}
+          <p className="font-mono text-[10px] text-muted mb-2 tracking-[0.5px]">
+            お一人様何点でもご購入いただけます
+          </p>
 
           {/* 購入ボタン（売り切れ / 販売終了 / 予告 / 購入手続き） */}
           <button
@@ -201,13 +206,13 @@ export default function FlashDetail() {
               '処理中...'
             : '今すぐ購入'}
           </button>
+          {/* こちらは元の中央揃えのまま（ボタン上の注記だけ左揃えにする） */}
           <p className="font-mono text-[10px] text-muted mt-2 text-center tracking-[0.5px]">
             在庫がなくなり次第終了
           </p>
         </div>
       </div>
 
-      {/* S3静的拡張データ：商品スペック・購入規約 (シングルSKU汎用設計) */}
       {(sale.specifications?.length || sale.rules?.length) && (
         <div className="mt-12 pt-8 border-t border-white/[0.1] animate-fade-in">
           <h2 className="font-oswald font-semibold text-[20px] text-paper mb-6 tracking-[0.5px] flex items-center gap-2">

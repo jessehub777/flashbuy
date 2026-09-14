@@ -10,9 +10,6 @@ import 'dayjs/locale/ja'
 dayjs.extend(relativeTime)
 dayjs.locale('ja')
 
-// 当選率ドットの数（StockDots と同じ考え方）
-const DOT_COUNT = 5
-
 // ===== フラッシュセール用チケットカード =====
 interface FlashTicketProps {
   sale: FlashItem
@@ -130,6 +127,9 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
 
   const isActive = item.status === 'ACTIVE'
 
+  // 当選倍率（応募者数 ÷ 当選枠）。求人倍率と同じ読み方で、1 倍未満なら当たりやすい
+  const odds = item.winnerCount > 0 ? (item.applyCount ?? 0) / item.winnerCount : 0
+
   return (
     <Link
       to={`/lottery/${item.id}`}
@@ -190,27 +190,19 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
             {item.price === 0 && <span className="text-[12px] text-muted font-normal ml-1">応募無料</span>}
           </div>
 
-          {/* 応募者数・当選枠（ドットは当選率の目安: 当選枠 ÷ 応募者数） */}
-          <div className="flex items-center gap-2 mb-[14px]">
-            <div className="flex gap-[3px]">
-              {Array.from({ length: DOT_COUNT }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`w-[6px] h-[6px] rounded-full ${
-                    i <
-                    Math.min(
-                      Math.round((item.winnerCount / Math.max(item.applyCount ?? 1, 1)) * DOT_COUNT),
-                      DOT_COUNT,
-                    ) ?
-                      'bg-lottery'
-                    : 'bg-line-paper'
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="font-mono text-[11px] text-muted">
+          {/* 応募状況。当選のしやすさは「倍率」で示す
+              （以前は 5 つの点で当選率を表していたが、5 段階では何も伝わらないため廃止） */}
+          <div className="flex items-center gap-2 mb-[14px] font-mono text-[11px]">
+            <span className="text-muted">
               枠 {item.winnerCount} / 応募 {(item.applyCount ?? 0).toLocaleString()}人
             </span>
+            {/* 当選倍率 = 応募者数 ÷ 当選枠（詳細ページと同じ表記に揃える）。
+                1倍未満＝応募した人が全員当選する状態なので、数字ではなくそう書く */}
+            {odds > 0 && (
+              <span className="text-lottery">
+                {odds < 1 ? '・応募者全員当選' : `・当選倍率 約${odds.toFixed(1)}倍`}
+              </span>
+            )}
           </div>
         </div>
 

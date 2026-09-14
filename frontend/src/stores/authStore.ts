@@ -47,9 +47,20 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      // ログアウト。先にローカルの認証状態を消してから API を呼ぶ。
+      //
+      // 順番が重要: 逆（API → set）にすると、API が遅い・失敗したときに
+      // トークンが消えないまま画面遷移だけが起きる。
+      // App.tsx は「期限切れトークンを見つけたら logout を待たずに /login へ飛ばす」ので、
+      // 消えないトークンが毎回検知され、/login を延々と読み直す（＝無限リロード）になる。
+      // そのため API の成否に関わらず、ローカルは必ずログアウト状態にする。
       logout: async () => {
-        await api.logout();
         set({ user: null, token: null, refreshToken: null });
+        try {
+          await api.logout();
+        } catch {
+          // サーバー側のセッション破棄に失敗しても、ローカルはログアウト済みとして扱う
+        }
       },
 
       // トークン自動更新後に呼ばれる（アクセストークンの差し替え）

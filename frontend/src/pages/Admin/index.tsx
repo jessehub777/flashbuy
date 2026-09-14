@@ -136,7 +136,7 @@ export default function Admin() {
                     <span
                       className={`font-mono text-[10px] px-2 py-0.5 rounded-[2px] border ${
                         sale.status === 'ACTIVE' ? 'text-success border-success/30 bg-success/10'
-                        : sale.status === 'UPCOMING' ? 'text-lottery border-lottery/30 bg-lottery/10'
+                        : sale.status === 'UPCOMING' ? 'text-purple-400 border-purple-500/30 bg-purple-500/10'
                         : 'text-muted border-white/10'
                       }`}>
                       {FLASH_STATUS_LABEL[sale.status] ?? sale.status}
@@ -187,8 +187,8 @@ export default function Admin() {
                     <span
                       className={`font-mono text-[10px] px-2 py-0.5 rounded-[2px] border ${
                         item.status === 'ACTIVE' ? 'text-success border-success/30 bg-success/10'
-                        : item.status === 'UPCOMING' || item.status === 'DRAWING' ?
-                          'text-lottery border-lottery/30 bg-lottery/10'
+                        : item.status === 'UPCOMING' ? 'text-purple-400 border-purple-500/30 bg-purple-500/10'
+                        : item.status === 'DRAWING' ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
                         : 'text-muted border-white/10'
                       }`}>
                       {LOTTERY_STATUS_LABEL[item.status] ?? item.status}

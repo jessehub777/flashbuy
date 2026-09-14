@@ -91,6 +91,48 @@ func Del(keys ...string) error {
 	return nil
 }
 
+// appKeyPrefixes はアプリが使うキーの接頭辞の一覧。
+// ここに無いキー（将来の別用途）は削除対象にしない
+var appKeyPrefixes = []string{"flash:", "lottery:", "home:", "role:", "stock:"}
+
+// FlushAppKeys はアプリが使うキャッシュをすべて削除し、削除した件数を返します。
+// 削除したキーは次のアクセスでDBから再構築されます（在庫のように DB とずれたときの復旧に使う）。
+//
+// FLUSHDB を使わない理由: 同じ Redis に別用途のキー（レート制限・分散ロックなど）を
+// 足したときに、それまで巻き込んで消してしまうため。対象を接頭辞で限定する。
+//
+// KEYS ではなく SCAN を使う理由: KEYS は全キーを1回で走査して Redis を止めるため。
+// 本番では使わない（PoC でも癖をつけない）。
+func FlushAppKeys() (int, error) {
+	ctx, cancel := context.WithTimeout(Ctx, 10*time.Second)
+	defer cancel()
+
+	deleted := 0
+	for _, prefix := range appKeyPrefixes {
+		var cursor uint64
+		for {
+			keys, next, err := RedisClient.Scan(ctx, cursor, prefix+"*", 100).Result()
+			if err != nil {
+				logger.Error("キャッシュの走査に失敗しました", zap.String("prefix", prefix), zap.Error(err))
+				return deleted, err
+			}
+			if len(keys) > 0 {
+				n, err := RedisClient.Del(ctx, keys...).Result()
+				if err != nil {
+					logger.Error("キャッシュの削除に失敗しました", zap.String("prefix", prefix), zap.Error(err))
+					return deleted, err
+				}
+				deleted += int(n)
+			}
+			cursor = next
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+	return deleted, nil
+}
+
 // Remember はキャッシュ優先でデータを取得します
 // キャッシュミス時はloaderでDBから取得し、キャッシュに書き戻して返します
 // Cache Asideパターンの汎用実装（TTLはkey単位で短めに設定する）

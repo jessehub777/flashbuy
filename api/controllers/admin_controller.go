@@ -238,6 +238,26 @@ func marshalItemDetail(specifications []models.Specification, rules []string) *s
 	return &s
 }
 
+// FlushCache はアプリが使うキャッシュをすべて削除します
+// POST /api/v1/admin/cache/flush
+//
+// 用途: Redis と DB の在庫がずれたときの復旧。
+// 削除しても次のアクセスでDBから作り直される（DBが帳簿）ので、消すだけで直る。
+//
+// 実装は cache.FlushAppKeys（接頭辞を限定して SCAN + DEL）。
+// FLUSHDB を使わない理由と SCAN を選ぶ理由は同関数のコメントを参照。
+func (h *AdminController) FlushCache(c *gin.Context) {
+	deleted, err := cache.FlushAppKeys()
+	if err != nil {
+		logger.Error("キャッシュの削除に失敗しました", zap.Error(err))
+		response.Error(c, response.CodeSystemError)
+		return
+	}
+
+	logger.Info("キャッシュを全削除しました", zap.Int("deleted", deleted))
+	response.Success(c, gin.H{"deleted": deleted})
+}
+
 // ListFlash は管理画面用に全フラッシュセール（終了済み含む）を返します
 // GET /api/v1/admin/flash/list（AuthRequired + RequireRole("admin") 必須）
 func (h *AdminController) ListFlash(c *gin.Context) {

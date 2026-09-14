@@ -99,6 +99,8 @@ func SetupRouter(env string, cognitoClient *auth.CognitoClient) *gin.Engine {
 		{
 			adminGroup.GET("/flash/list", adminController.ListFlash)
 			adminGroup.POST("/flash", adminController.CreateFlash)
+			// Redis と DB がずれた時の復旧（アプリのキャッシュを全削除 → 次回アクセスでDBから再構築）
+			adminGroup.POST("/cache/flush", adminController.FlushCache)
 			adminGroup.GET("/lottery/list", adminController.ListLottery)
 			adminGroup.POST("/lottery", adminController.CreateLottery)
 		}

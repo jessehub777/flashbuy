@@ -166,6 +166,12 @@ export const api = {
     return { ...toImageUrl(res.lotteryItem), status: computeLotteryStatus(res.lotteryItem) }
   },
 
+  // 管理画面用 — アプリのキャッシュを全削除（Redis と DB がずれた時の復旧）
+  // 削除したキーは次のアクセスで DB から作り直される
+  async adminFlushCache(): Promise<{ deleted: number }> {
+    return requestPost<{ deleted: number }>('/api/v1/admin/cache/flush')
+  },
+
   // ログイン（IDトークン + リフレッシュトークン）
   async login(email: string, password: string) {
     return requestPost<{ user: User; token: string; refreshToken: string }>('/api/v1/auth/login', {

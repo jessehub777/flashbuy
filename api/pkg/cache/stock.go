@@ -110,7 +110,9 @@ func IncrStock(id string) error {
 	return nil
 }
 
-// DelStock は在庫キーを削除します（商品削除時など）
+// DelStock は在庫キーを削除します（商品削除時など）。
+// 削除すると次のアクセスでDBの値からプレヒートし直されるため、
+// Redis の在庫がずれたときの復旧にも使える（cache.FlushAppKeys はこの一括版）
 func DelStock(id string) error {
 	return Del(KeyStock + id)
 }

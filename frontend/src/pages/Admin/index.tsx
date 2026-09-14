@@ -28,6 +28,29 @@ export default function Admin() {
   const [tab, setTab] = useState<'flash' | 'lottery'>('flash')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createType, setCreateType] = useState<'flash' | 'lottery'>('flash')
+  // キャッシュ削除（Redis と DB がずれた時の復旧）の実行状態と結果表示
+  const [flushing, setFlushing] = useState(false)
+  const [flushMessage, setFlushMessage] = useState('')
+
+  const handleFlushCache = async () => {
+    // 破壊的な操作ではないが、一瞬キャッシュが全消しになるため確認する
+    if (!window.confirm('アプリのキャッシュを全て削除します。よろしいですか？\n（在庫・一覧は次のアクセスでDBから作り直されます）')) {
+      return
+    }
+    setFlushing(true)
+    setFlushMessage('')
+    try {
+      const { deleted } = await api.adminFlushCache()
+      setFlushMessage(`${deleted} 件のキャッシュを削除しました`)
+      // 一覧はキャッシュ経由のため、削除後に取り直す
+      await queryClient.invalidateQueries({ queryKey: ['adminFlashList'] })
+      await queryClient.invalidateQueries({ queryKey: ['adminLotteryList'] })
+    } catch {
+      setFlushMessage('キャッシュの削除に失敗しました')
+    } finally {
+      setFlushing(false)
+    }
+  }
 
   // 管理画面用の一覧（終了済みも含む全件）。未ログイン・非管理者のときはリクエストしない
   const { data: flashList = [] } = useQuery({
@@ -85,8 +108,23 @@ export default function Admin() {
             className="flex items-center gap-2 px-4 py-2.5 bg-lottery font-oswald font-semibold text-[13px] tracking-[1px] rounded-[3px] hover:brightness-110 transition-all shadow-md">
             ＋ 新規抽選作成
           </button>
+          {/* 運用操作（作成系とは別物なので、塗りではなく枠線で区別する） */}
+          <button
+            onClick={handleFlushCache}
+            disabled={flushing}
+            title="Redis のキャッシュを全削除します。在庫や一覧は次のアクセスでDBから作り直されます"
+            className="flex items-center gap-2 px-4 py-2.5 border border-white/25 text-paper/80 font-oswald font-semibold text-[13px] tracking-[1px] rounded-[3px] hover:border-white/50 hover:text-paper transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            {flushing ? '削除中...' : 'キャッシュ削除'}
+          </button>
         </div>
       </div>
+
+      {/* キャッシュ削除の結果 */}
+      {flushMessage && (
+        <div className="mb-6 px-4 py-2.5 rounded-[3px] border border-white/[0.12] bg-white/[0.03] font-mono text-[12px] text-paper/80">
+          {flushMessage}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-white/[0.12] mb-6">

@@ -210,11 +210,18 @@ resource "aws_db_instance" "postgres" {
   maintenance_window      = "sun:04:00-sun:05:00"
 
   # PoCでは最終スナップショットを取らない（skip_final_snapshot = true）
+  # ただし「うっかり削除」は必ず防ぐ（下の deletion_protection と prevent_destroy）。
+  # この DB が消えると演示も検証もできなくなるため、消すときは明示的に外してから行う
   skip_final_snapshot = true
+
+  # AWS 側の削除保護。コンソールや CLI からの削除も拒否される
+  deletion_protection = true
 
   # パスワード変更時はインスタンス再作成を避ける
   lifecycle {
     ignore_changes = [password]
+    # terraform destroy でも消えないようにする（消すときはこの行を外してから）
+    prevent_destroy = true
   }
 
   tags = {

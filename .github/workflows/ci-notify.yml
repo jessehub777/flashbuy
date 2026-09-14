@@ -1,0 +1,111 @@
+# ==============================================================================
+# 失敗通知（全パイプライン共通）
+#
+# 各ワークフローに通知処理を書くと重複するので、workflow_run で
+# 他のワークフローの完了を受け取って、ここだけで通知する。
+#
+#   失敗 → Issue を立てる（既に開いていればコメントを追記）
+#   成功 → その Issue を自動で閉じる
+#
+# Slack 連携は任意。リポジトリに SLACK_WEBHOOK_URL を登録すると有効になる。
+#
+# 注意: workflows: には監視対象の「ワークフロー表示名（name:）」を書く。
+#       name を変えたらここも直すこと
+# ==============================================================================
+
+name: CI Notify
+
+on:
+  workflow_run:
+    workflows:
+      - "API CI"
+      - "API CD"
+      - "Lambda CI"
+      - "Lambda CD"
+      - "Terraform CI"
+      - "Frontend CI/CD"
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 失敗: Issue を立てる（既に開いていれば追記）
+  # ---------------------------------------------------------------------------
+  notify-failure:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create or update issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="[CI] ${WF_NAME} が失敗しました"
+
+          # ラベルは無ければ作る（既にある場合のエラーは無視）
+          gh label create ci-failure --color B0281F \
+            --description "CI の失敗" 2>/dev/null || true
+
+          BODY="ワークフロー **${WF_NAME}** が失敗しました。
+
+          - ブランチ: \`${BRANCH}\`
+          - コミット: \`${SHA}\`
+          - 実行ログ: ${RUN_URL}
+
+          ログを確認して修正してください。成功するとこの Issue は自動で閉じます。"
+
+          # 同じワークフローの未解決 Issue があれば追記、無ければ新規作成
+          NUM=$(gh issue list --repo "$REPO" --state open --label ci-failure \
+            --search "in:title ${WF_NAME}" --json number --jq '.[0].number // empty')
+
+          if [ -n "$NUM" ]; then
+            echo "既存の Issue #${NUM} に追記します"
+            gh issue comment "$NUM" --repo "$REPO" --body "$BODY"
+          else
+            echo "新しい Issue を立てます"
+            gh issue create --repo "$REPO" --title "$TITLE" --label ci-failure --body "$BODY"
+          fi
+
+          # Slack（SLACK_WEBHOOK_URL 未設定ならスキップ）
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "SLACK_WEBHOOK_URL が未設定のため Slack 通知はスキップします"
+            exit 0
+          fi
+          PAYLOAD=$(printf '{"text":"❌ %s が失敗しました\\n%s"}' "$WF_NAME" "$RUN_URL")
+          curl -sS -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" "$SLACK_WEBHOOK"
+
+  # ---------------------------------------------------------------------------
+  # 成功: 対応する Issue を自動で閉じる（開きっぱなしを防ぐ）
+  # ---------------------------------------------------------------------------
+  notify-success:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Close resolved issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          NUM=$(gh issue list --repo "$REPO" --state open --label ci-failure \
+            --search "in:title ${WF_NAME}" --json number --jq '.[0].number // empty')
+
+          if [ -z "$NUM" ]; then
+            echo "閉じる対象の Issue はありません"
+            exit 0
+          fi
+
+          gh issue close "$NUM" --repo "$REPO" \
+            --comment "成功したため自動で閉じます: ${RUN_URL}"

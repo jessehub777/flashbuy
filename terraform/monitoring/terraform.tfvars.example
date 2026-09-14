@@ -1,0 +1,18 @@
+# このファイルを terraform.tfvars にコピーして実値を設定する（.gitignoreで除外済み）
+# cp terraform.tfvars.example terraform.tfvars
+
+environment = "dev"
+
+# アラーム通知先のメールアドレス（複数可）。空でもアラーム自体は作られる（購読だけ作らない）
+# ⚠️ apply 後、SNS から確認メールが届く。リンクをクリックするまで通知は始まらない
+alert_emails = ["YOUR_EMAIL@example.com"]
+
+# しきい値は variables.tf の default を使う（緩めの値）。必要ならここで上書きする
+# alb_5xx_threshold             = 5
+# response_time_threshold_seconds = 2
+# ecs_cpu_threshold             = 80
+# ecs_memory_threshold          = 80
+# rds_cpu_threshold             = 80
+# rds_free_storage_bytes        = 2147483648
+# rds_connections_threshold     = 60
+# redis_cpu_threshold           = 80

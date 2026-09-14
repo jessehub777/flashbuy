@@ -75,7 +75,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [shared, data, auth, storage, lambda, compute, frontend]
+        module: [shared, data, auth, storage, lambda, compute, frontend, monitoring]
     permissions:
       id-token: write
       contents: read

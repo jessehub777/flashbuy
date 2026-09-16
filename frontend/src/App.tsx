@@ -16,6 +16,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import MyPage from './pages/MyPage'
 import Admin from './pages/Admin'
+import Privacy from './pages/Privacy'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,7 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/my" element={<MyPage />} />
               <Route path="/admin" element={<Admin />} />
+              <Route path="/privacy" element={<Privacy />} />
               {/* 404 */}
               <Route
                 path="*"

@@ -1,4 +1,6 @@
 // フッター — サイト共通の表示
+import { Link } from 'react-router-dom';
+
 export default function Footer() {
   return (
     <footer className="flex flex-col sm:flex-row justify-between items-center gap-2 px-10 py-7 border-t border-white/[0.12] font-mono text-[11px] text-muted mt-auto">
@@ -9,6 +11,10 @@ export default function Footer() {
         <span className="text-flash/80">東京</span>
         <span>•</span>
         <span>React / Go / AWS / TerraForm</span>
+        <span>•</span>
+        <Link to="/privacy" className="hover:text-paper transition-colors">
+          プライバシーポリシー
+        </Link>
       </div>
     </footer>
   );

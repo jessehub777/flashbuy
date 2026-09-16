@@ -328,13 +328,20 @@ export default function LotteryDetail() {
           <div className="bg-ink-soft border border-white/[0.12] rounded-[6px] w-full max-w-[380px] mx-4 p-6 animate-slide-up">
             <h3 className="font-oswald font-semibold text-[18px] mb-2">応募を確認</h3>
             <p className="text-[14px] text-muted mb-1">{item.name}</p>
-            <p className="font-mono text-[11px] text-muted mb-5 tracking-[0.5px]">
+            <p className="font-mono text-[11px] text-muted mb-2 tracking-[0.5px]">
               {item.applyCount > 0 ?
                 isAllWin ?
                   `現在の応募状況: 応募者全員が当選（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
                 : `現在の当選倍率: 約 ${odds}倍（${item.applyCount.toLocaleString()}人中${item.winnerCount}名当選）`
               : `当選枠 ${item.winnerCount}名（応募者募集中）`}
             </p>
+
+            {/* 利用目的の明示（結果通知にメールを使うことを応募前に示す） */}
+            <p className="font-mono text-[10px] text-muted/80 leading-relaxed mb-5 tracking-[0.5px]">
+              当選・落選の結果は、ご登録のメールアドレス宛にお知らせします。
+              本サイトは技術デモのため、実際に商品が発送されることはありません。
+            </p>
+
             <div className="flex gap-3">
               <button
                 className="flex-1 py-2.5 border border-white/[0.12] text-muted font-oswald font-semibold text-[13px] tracking-[1px] uppercase rounded-[3px] hover:border-white/25 transition-colors"

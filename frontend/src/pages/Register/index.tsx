@@ -112,6 +112,12 @@ export default function Register() {
             <p className="font-mono text-[12px] text-flash tracking-[0.5px]">{error}</p>
           )}
 
+          {/* 利用目的の明示（メールアドレスの使い道を登録前に示す） */}
+          <p className="font-mono text-[11px] text-muted leading-relaxed tracking-[0.5px] mt-1">
+            ※ ご登録のメールアドレスは、ログイン認証および抽選結果のお知らせに利用します。
+            本サイトは技術デモであり、実在の商品の販売・抽選・決済は行いません。
+          </p>
+
           <button
             type="submit"
             className="btn-base bg-flash mt-2 py-3 text-[14px]"
@@ -120,6 +126,14 @@ export default function Register() {
             {isLoading ? '登録中...' : '登録する'}
           </button>
         </form>
+
+        <p className="font-mono text-[11px] text-muted leading-relaxed tracking-[0.5px] mt-4 text-center">
+          登録すると
+          <Link to="/privacy" className="text-flash hover:underline mx-1">
+            プライバシーポリシー
+          </Link>
+          に同意したものとみなされます。
+        </p>
 
         <div className="mt-6 text-center">
           <p className="font-mono text-[12px] text-muted tracking-[0.5px]">

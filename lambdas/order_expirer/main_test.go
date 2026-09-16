@@ -2,10 +2,15 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"io"
 	"os"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/jmoiron/sqlx"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -202,38 +207,102 @@ func TestCancelSQLUsesRestoreIDAlias(t *testing.T) {
 	}
 }
 
-// TestSplitRestoreIDs は「件数」と「在庫を戻すID一覧」の分け方を確認する。
+// TestCountByFlashID は「商品ID → 戻す個数」への集計を確認する。
 //
 // これが無いと何が起きるか:
 //
-//	抽選は restore_id が NULL のため、ID一覧の長さを件数として使うと
-//	「実際には取り消せているのにログは常に0件」になる（気づけない不具合）。
-func TestSplitRestoreIDs(t *testing.T) {
-	itemA, itemB := "item-a", "item-b"
-
-	// フラッシュ: 2件取り消し、どちらも在庫を戻す
-	canceled, ids := splitRestoreIDs([]*string{&itemA, &itemB})
-	if canceled != 2 {
-		t.Errorf("件数が正しくありません: got=%d want=2", canceled)
-	}
-	if len(ids) != 2 || ids[0] != itemA || ids[1] != itemB {
-		t.Errorf("在庫を戻すIDが正しくありません: got=%v", ids)
-	}
-
-	// 抽選: 2件取り消したが在庫を戻す対象は0件（NULLのため）
-	canceled, ids = splitRestoreIDs([]*string{nil, nil})
-	if canceled != 2 {
-		t.Errorf("抽選の件数が0になっています（NULLを除外して数えてはいけません）: got=%d want=2", canceled)
-	}
-	if len(ids) != 0 {
-		t.Errorf("抽選は在庫を戻す対象が無いはずです: got=%v", ids)
+//	同じ商品の注文が100件同時に期限切れになったとき、在庫の UPDATE が100回に増える
+//	（1回にまとめるための集計なので、まとまらないと N+1 が復活する）。
+func TestCountByFlashID(t *testing.T) {
+	// フラッシュ: 同じ商品2件 + 別商品1件
+	counts := countByFlashID([]sql.NullString{
+		{String: "item-a", Valid: true},
+		{String: "item-a", Valid: true},
+		{String: "item-b", Valid: true},
+	})
+	if counts["item-a"] != 2 || counts["item-b"] != 1 || len(counts) != 2 {
+		t.Errorf("商品ごとの件数が正しくありません: got=%v", counts)
 	}
 
-	// 混在（通常は起きないが、NULLの扱いが壊れていないかの保険）
-	canceled, ids = splitRestoreIDs([]*string{&itemA, nil})
-	if canceled != 2 || len(ids) != 1 {
-		t.Errorf("混在時に正しく分けられていません: canceled=%d ids=%v", canceled, ids)
+	// 抽選のSQL（restore_id が NULL）: 在庫を持たないため復元対象は0件
+	if got := countByFlashID([]sql.NullString{{Valid: false}, {Valid: false}}); len(got) != 0 {
+		t.Errorf("NULL（抽選）は在庫の復元対象にしてはいけません: got=%v", got)
 	}
+}
+
+// ==============================================================================
+// NULL の受け取り（回帰テスト）
+// ==============================================================================
+
+// TestScanAndCancelLottery_AcceptsNullRestoreID は、抽選の restore_id（NULL）を
+// 受け取れることを「実際の Scan」で確認する。
+//
+// 背景（2026-09-15 に実際に起きた不具合）:
+// 以前は []*string で受けていたため、期限切れの抽選注文が初めて発生した瞬間に
+// 「converting NULL to string is unsupported」で失敗し、Lambda がエラーを返して
+// CloudWatch アラームが鳴った（注文自体は取り消せていたが、毎回エラーになる）。
+//
+// sqlx の Select は要素型を deref してから reflect.New(base) でスキャン先を作るため、
+// []*string でも実際のスキャン先は *string になり、ポインタは NULL を吸収しない。
+// 「型が NULL を受け取れるか」は DB を用意しないと確認できないので、
+// 1列だけ NULL を返す最小のドライバを用意して Scan させる。
+func TestScanAndCancelLottery_AcceptsNullRestoreID(t *testing.T) {
+	db, err := sqlx.Open(nullDriverName, "")
+	if err != nil {
+		t.Fatalf("テスト用DBのオープンに失敗しました: %v", err)
+	}
+	defer db.Close()
+
+	canceled, err := scanAndCancelLottery(db, lotteryScanSQL(), 100)
+	if err != nil {
+		t.Fatalf("NULL の restore_id を受け取れていません: %v", err)
+	}
+	// NULL の行も UPDATE で取り消せているため、件数には数える（除外してはいけない）
+	if canceled != 1 {
+		t.Errorf("取消件数が正しくありません: got=%d want=1", canceled)
+	}
+}
+
+// ---- テスト用の最小ドライバ（1列・NULLを1行だけ返す） ----
+
+const nullDriverName = "flashbuy-nulltest"
+
+func init() {
+	// 同名の sql.Register は2回呼ぶと panic するため init で1度だけ登録する
+	sql.Register(nullDriverName, nullDriver{})
+}
+
+type nullDriver struct{}
+
+func (nullDriver) Open(string) (driver.Conn, error) { return nullConn{}, nil }
+
+type nullConn struct{}
+
+func (nullConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("このテストでは Prepare を使いません")
+}
+func (nullConn) Close() error { return nil }
+func (nullConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("このテストでは Tx を使いません")
+}
+
+// QueryerContext を実装しておくと、database/sql が Prepare を経由せずここへ来る
+func (nullConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+	return &nullRows{}, nil
+}
+
+type nullRows struct{ done bool }
+
+func (*nullRows) Columns() []string { return []string{"restore_id"} }
+func (*nullRows) Close() error      { return nil }
+
+func (r *nullRows) Next(dest []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	r.done = true
+	dest[0] = nil // ここが NULL。スキャン先が string だと Scan に失敗する
+	return nil
 }
 
 // ==============================================================================

@@ -282,8 +282,20 @@ func handleScan(ctx context.Context, db *sqlx.DB, rdb *redis.Client) error {
 
 // scanAndCancelLottery は期限切れの抽選注文をまとめて取り消す。
 // 抽選は枠数制で在庫を持たないため、取り消すだけでよい（トランザクションも不要）。
+//
+// 受け取りに sql.NullString を使う理由（実際に踏んだ罠）:
+//
+//	抽選の restore_id は NULL で返る。これを []*string で受けると
+//	「converting NULL to string is unsupported」で失敗する。
+//	sqlx の Select は要素型を deref してから reflect.New(base) を作るため、
+//	[]*string でも実際のスキャン先は *string になり、
+//	ポインタが NULL を吸収しない（ポインタは append の詰め方にしか影響しない）。
+//	NULL を許容するには Scanner を実装した型（sql.NullString など）が必要。
+//
+// なお件数は「返った行数」そのもの。NULL の行も UPDATE で取り消せているため、
+// NULL を除外して数えてはいけない。
 func scanAndCancelLottery(db *sqlx.DB, updateSQL string, limit int) (canceled int, err error) {
-	var ids []*string
+	var ids []sql.NullString
 	if err := db.Select(&ids, updateSQL, limit); err != nil {
 		return 0, err
 	}
@@ -306,7 +318,10 @@ func scanAndCancelFlash(ctx context.Context, db *sqlx.DB, updateSQL string, limi
 	}
 	defer tx.Rollback()
 
-	var ids []*string // 抽選の NULL が混ざるためポインタで受ける
+	// 抽選側と同じ理由で sql.NullString を使う（[]*string では NULL を受け取れない）。
+	// フラッシュの restore_id = flash_id は NOT NULL なので現状は NULL にならないが、
+	// SQLを書き換えたときに静かに壊れないよう型を揃えておく
+	var ids []sql.NullString
 	if err := tx.Select(&ids, updateSQL, limit); err != nil {
 		return 0, nil, err
 	}
@@ -335,27 +350,16 @@ func addDBStock(tx *sqlx.Tx, flashID string, n int) error {
 
 // countByFlashID は取り消せた注文を「商品ID → 件数」にまとめる。
 // 100件同じ商品でも UPDATE 1回で済むようにするための集計。
-func countByFlashID(ids []*string) map[string]int {
+// restore_id が NULL の行（＝抽選のSQL）は在庫を持たないため対象外。
+func countByFlashID(ids []sql.NullString) map[string]int {
 	counts := make(map[string]int)
 	for _, id := range ids {
-		if id != nil {
-			counts[*id]++
+		if !id.Valid {
+			continue
 		}
+		counts[id.String]++
 	}
 	return counts
-}
-
-// splitRestoreIDs は取り消せた行の結果を「件数」と「在庫を戻すID一覧」に分ける。
-// 抽選は restore_id が NULL のため、件数は行数そのまま・ID一覧は空になる。
-// （ID一覧の長さを件数として使うと抽選が常に0件に見えてしまう）
-func splitRestoreIDs(ids []*string) (canceled int, restoreIDs []string) {
-	restoreIDs = make([]string, 0, len(ids))
-	for _, id := range ids {
-		if id != nil {
-			restoreIDs = append(restoreIDs, *id)
-		}
-	}
-	return len(ids), restoreIDs
 }
 
 // restoreRedisStock はRedisの在庫を n 個戻す。

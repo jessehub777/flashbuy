@@ -116,6 +116,9 @@ resource "aws_lambda_function" "order_expirer" {
     Name = "${var.project_name}-order-expirer-${var.environment}"
   }
 
+  # 保持期間を設定したロググループを先に作る（自動生成だと無期限になるため）
+  depends_on = [aws_cloudwatch_log_group.order_expirer]
+
   lifecycle {
     # コードは CI（v* タグのリリース）が差し替える。terraform は設定だけを管理する
     ignore_changes = [filename, source_code_hash]

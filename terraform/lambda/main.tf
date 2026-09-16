@@ -152,6 +152,9 @@ resource "aws_lambda_function" "lottery_drawer" {
     Name = "${var.project_name}-lottery-drawer-${var.environment}"
   }
 
+  # 保持期間を設定したロググループを先に作る（自動生成だと無期限になるため）
+  depends_on = [aws_cloudwatch_log_group.lottery_drawer]
+
   lifecycle {
     # コードは CI（v* タグのリリース）が差し替える。terraform は設定だけを管理する。
     # source_code_hash を見ると、apply のたびに CI が入れたコードをローカルの zip に

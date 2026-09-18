@@ -43,7 +43,7 @@ export default function MyPage() {
     return () => clearInterval(timer)
   }, [])
 
-  // 支払期限を過ぎた未払い注文は、サーバーの期限切れ処理（30秒間隔）を待たずに
+  // 支払期限を過ぎた未払い注文は、サーバーの期限切れ処理（1分間隔）を待たずに
   // その時点で CANCELLED として扱う（支払いボタンを出さないための二重保険）
   const effectiveOrders = useMemo(
     () => orders.map((o) => ({ ...o, status: computeFlashOrderStatus(o, now) })),
@@ -332,7 +332,7 @@ function EmptyState({ message }: { message: string }) {
 
 // 支払期限までの残り時間を表示する（期限を過ぎたら自動キャンセルの警告を出す）
 // 期限切れになったら onExpired を呼び、親で注文一覧を再取得させる。
-// サーバーの期限切れ処理（order_expirer、30秒間隔）が走るまでの間は
+// サーバーの期限切れ処理（order_expirer、1分間隔）が走るまでの間は
 // 5秒ごとに再取得を続ける。親側で注文が CANCELLED / PAID に変わると
 // このコンポーネント自体がアンマウントされるため、自動で停止する
 function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?: () => void }) {

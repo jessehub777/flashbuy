@@ -291,7 +291,8 @@ func connectDB() (*sqlx.DB, error) {
 	}
 
 	// Lambda は 1 invocation = 1並行で、開票処理は1トランザクションの直列実行のため接続は1本で十分。
-	// プールは各 invocation で作り直される（handler の defer db.Close()）ため、それ以上の設定は不要
+	// 接続は sync.Once（getDB）でコンテナ起動時に1回だけ作り、ウォームスタートで使い回す。
+	// handler は Close しない（コンテナ終了時に片付く）ため、それ以上の設定は不要
 	db.SetMaxOpenConns(1)
 	return db, nil
 }

@@ -165,18 +165,18 @@ export default function FlashDetail() {
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 販売終了
                 </div>
-                <Countdown targetDate={sale.endsAt} label="" showDays={false} expiredText="販売終了" />
+                <Countdown targetDate={sale.endsAt} label="" showDays expiredText="販売終了" />
               </>
             : isUpcoming ?
               <>
                 <div className="font-mono text-[10px] text-purple-400 tracking-[1.5px] uppercase mb-3">
                   販売開始まで
                 </div>
-                <Countdown targetDate={sale.startsAt} label="" showDays={false} expiredText="まもなく開始" />
+                <Countdown targetDate={sale.startsAt} label="" showDays expiredText="まもなく開始" />
               </>
             : <>
                 <div className="font-mono text-[10px] text-muted tracking-[1.5px] uppercase mb-3">販売終了まで</div>
-                <Countdown targetDate={sale.endsAt} label="" showDays={false} expiredText="販売終了" />
+                <Countdown targetDate={sale.endsAt} label="" showDays expiredText="販売終了" />
               </>
             }
           </div>

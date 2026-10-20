@@ -27,3 +27,14 @@ output "CLOUDFRONT_DISTRIBUTION_ID_PROD" {
   value       = module.prod_hosting.cloudfront_distribution_id
   description = "PROD環境用の CloudFront ID (GitHub Secret: CLOUDFRONT_DISTRIBUTION_ID_PROD)"
 }
+
+# 公開 URL。デモ用の共有リンクはこの値をそのまま使う
+output "CLOUDFRONT_DOMAIN_DEV" {
+  value       = module.dev_hosting.cloudfront_domain_name
+  description = "DEV環境の公開 URL（https:// を付けてアクセスする）"
+}
+
+output "CLOUDFRONT_DOMAIN_PROD" {
+  value       = module.prod_hosting.cloudfront_domain_name
+  description = "PROD環境の公開 URL（https:// を付けてアクセスする）"
+}

@@ -142,7 +142,6 @@ export interface ApiResponse<T> {
 ## 2. PostgreSQL テーブル設計（`api/init_db.sql` が正本）
 
 > **エンジン**: RDS PostgreSQL 15（provisioned、`db.t4g.micro`）。
-> Aurora Serverless v2 は生産進化目標（選型理由は README §5.1）。
 > **文字コード**: UTF-8 / **命名**: snake_case / **拡張**: `pgcrypto`（`gen_random_uuid()` 用）。
 > Go モデルは `db:"snake_case"` + `json:"camelCase"`。NULL になる列はポインタ（`*string` / `*time.Time`）で受ける。
 

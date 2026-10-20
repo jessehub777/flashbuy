@@ -1,447 +1,377 @@
-# 🏗️ FlashBuy — 大量同時アクセス対応 フラッシュセール・抽選販売プラットフォーム
+# FlashBuy
 
-[日本語] | [中文](README_zh.md)
+日本語 | [中文](README_zh.md)
 
-> 高負荷・大量同時アクセスを想定したフラッシュセール（先着購入）と抽選販売のプラットフォームです。技術検証のポイントは 3 つ：Redis Lua によるアトミックな在庫減算（超売り防止）、抽選開票の Lambda バッチ処理、Terraform による AWS インフラの管理です。
+数量限定のフラッシュセールと抽選を組み合わせたショッピングシステムです（個人開発）。バックエンドは Go、AWS の東京リージョンで稼働しています。インフラストラクチャは Terraform で管理し、リリースは GitHub Actions で自動化しています。
+
+- デモサイト：<https://d3vk1w3oavfogf.cloudfront.net>
+
+本システムは 2 つの業務シナリオから成り、技術的な要点は次の 3 つです。
+
+1. **在庫の整合性**：同時購入が集中しても売り越しや在庫の取りこぼしが発生しない
+2. **非同期処理**：注文の期限切れキャンセルと抽選の開票を確実に実行する
+3. **デリバリー**：AWS のネットワークとトラフィック制御、ECS／Lambda の実行環境、Terraform、GitHub Actions によるリリース、CloudWatch による監視
+
+決済はモック実装で、成功／失敗はサーバー側が確率で決定します。
 
 ---
 
-## 1. システム全体アーキテクチャ図
+## 目次
+
+1. [アーキテクチャと処理フロー](#1-アーキテクチャと処理フロー)
+2. [AWS インフラストラクチャ](#2-aws-インフラストラクチャ)
+3. [IaC と CI/CD](#3-iac-と-cicd)
+4. [二重予約防止と公平な抽選](#4-二重予約防止と公平な抽選)
+5. [トラブルシューティング](#5-トラブルシューティング)
+6. [その他](#6-その他)
+
+---
+
+## 1. アーキテクチャと処理フロー
+
+### 1.1 全体構成
 
 ```mermaid
 flowchart TB
-    %% レイヤー配色
-    classDef client fill:#e8f4fd,stroke:#4a90d9
-    classDef net    fill:#f0f7f0,stroke:#5aa85a
-    classDef auth   fill:#fdf3e7,stroke:#d98a3d
-    classDef biz    fill:#fdeeee,stroke:#d94a4a
-    classDef msg    fill:#f5f0fd,stroke:#8a5ad9
-    classDef data   fill:#eef7f0,stroke:#4a9d5a
-    classDef obs    fill:#f0f0f0,stroke:#888
-    classDef cicd   fill:#f0f0f0,stroke:#888
-
-    subgraph CL["クライアント層"]
-        Web["Web App (React + TS)"]
-        Console["管理画面 (/admin)"]
-    end
-
-    subgraph NW["ネットワーク・アクセス層"]
-        Ingress["Route53 → ACM → ALB"]
-        CF["CloudFront<br/>(フロント配信 + /api 転送)"]
-    end
-
-    subgraph AU["認証層"]
-        Cognito["Amazon Cognito<br/>User Pool / JWT"]
-    end
-
-    subgraph BI["ビジネスロジック層"]
-        API["メイン API サービス (Go + Gin)<br/>ECS Fargate"]
-        Worker["非同期ワーカー (Go)<br/>AWS Lambda"]
-    end
-
-    subgraph MG["メッセージング層"]
-        EB["EventBridge Scheduler"]
-        SNS["SNS"]
-    end
-
-    subgraph DT["データ層"]
-        Aurora["Aurora PostgreSQL 15"]
-        Redis["ElastiCache Redis"]
-        S3["S3"]
-    end
-
-    subgraph OB["可観測性"]
-        CW["CloudWatch Logs"]
-    end
-
-    subgraph CICD["CI/CD & IaC"]
-        GH["GitHub Actions + Terraform"]
-    end
-
-    %% メインリクエスト経路（実線）
-    Web --> CF
-    Console --> CF
-    CF --> Ingress
-    Ingress --> API
-    API <-->|認証（SDK 呼び出し / JWT 検証）| Cognito
-    API ==> Aurora
-    API ==> Redis
-    Web -. 商品画像 .-> S3
-
-    %% 非同期経路
-    API --> EB
-    EB --> Worker
-    Worker --> SNS
-    Worker ==> Aurora
-    Worker ==> Redis
-
-    %% 監視 / デプロイ
-    API -. ログ .-> CW
-    Worker -. ログ .-> CW
-    GH -. デプロイ .-> API
-    GH -. デプロイ .-> Worker
-
-    class Web,Console client
-    class Ingress,CF net
-    class Cognito auth
-    class API,Worker biz
-    class EB,SNS msg
-    class Aurora,Redis,S3 data
-    class CW obs
-    class GH cicd
+  U["ユーザー"] --> CF["CloudFront"]
+  CF -->|"静的ファイル"| S3F["S3<br/>ページファイル"]
+  CF -->|"/api/*"| ALB["ALB"]
+  ALB --> ECS["ECS Fargate<br/>Go API"]
+  ECS -->|"注文・商品・ユーザー"| RDS["RDS PostgreSQL"]
+  ECS -->|"在庫・キャッシュ"| RD["ElastiCache Redis"]
+  ECS -->|"登録・ログイン"| COG["Cognito"]
+  ECS -.->|"アップロード URL の発行"| S3I["S3<br/>商品画像"]
+  ECS -->|"注文・抽選作成時に登録"| SCH["EventBridge Scheduler<br/>指定時刻に 1 回実行"]
+  SCH -->|"時刻到来時に呼び出し"| L1["Lambda 抽選の開票"]
+  SCH -->|"時刻到来時に呼び出し"| L2["Lambda 注文の期限切れ処理"]
+  RULE["EventBridge Rule<br/>毎分"] -->|"スキャン"| L1
+  RULE -->|"スキャン"| L2
+  L1 --> RDS
+  L1 -->|"開票通知"| SNS["SNS"]
+  L2 --> RDS
+  L2 --> RD
 ```
 
-> 注：上図は目標アーキテクチャです。
->
-> 図中の Aurora は今後の移行先で、現在は **RDS PostgreSQL** を使用しています（選定理由は §5.1）。フロントは CloudFront から配信し（静的ホスティング + `/api` を ALB へ転送）、Route53 / ACM は今後追加する部分です。抽選開票や注文タイムアウトなどのバッチ処理は Lambda が担当します（設計は §6）。商品画像は S3 に保存します。
+### 1.2 業務フロー
+
+**フラッシュセール**
+
+```
+1. Cognito の JWT と販売期間を検証し、期間外なら即座に拒否する
+2. Redis の Lua スクリプトでアトミックに在庫を引き当てる。在庫がなければ「完売」を返す
+3. トランザクションで注文を作成（UNPAID、期限は現在時刻 + 15 分）し、データベースの在庫を減算する
+4. Scheduler に期限時刻のワンタイムスケジュールを登録する
+5. 注文番号を返す
+```
+
+注文は同期的に処理します。在庫の引き当ては Redis の単一スレッドによるアトミックな処理で行い、利用者にも即座に結果を返す必要があるためです。注文の期限切れキャンセルと在庫の戻しは独立したバッチ処理として Lambda が担当します。
+
+**抽選**
+
+```
+1. 管理者が抽選を作成すると、API が開票時刻のワンタイムスケジュールを Scheduler に登録する
+2. 開票時刻に Lambda が応募者一覧を読み、当選者をランダムに抽選する
+3. 当選者は UNPAID となり 72 時間以内に支払う。それ以外は LOST となる
+4. 期限を過ぎても未払いの注文は、注文の期限切れ処理 Lambda がキャンセルする
+```
+
+### 1.3 技術スタック
+
+| 分類           | 技術                                          |
+| ------------ | ------------------------------------------- |
+| フロントエンド      | React 19 / TypeScript / Vite / Tailwind CSS |
+| バックエンド       | Go 1.26 / Gin / sqlx                        |
+| データベース・キャッシュ | PostgreSQL 15（RDS）、Redis 7.1（ElastiCache）   |
+| 認証           | Amazon Cognito                              |
+| コンピューティング    | ECS Fargate（ARM64）、Lambda（Go、ARM64）         |
+| スケジューリング     | EventBridge Scheduler / Rule                |
+| 静的ホスティング     | S3 + CloudFront                             |
+| IaC / CI/CD  | Terraform、GitHub Actions（OIDC）              |
+| 監視           | CloudWatch、SNS                              |
 
 ---
 
-## 2. 技術スタック
+## 2. AWS インフラストラクチャ
 
-### 2.1 フロントエンド
+リージョン：`ap-northeast-1`
 
-- **Core**: React 19, TypeScript, Vite
-- **Styling**: Vanilla CSS, Tailwind CSS
-- **State & Data**: Zustand, TanStack Query (React Query)
-- **Utilities**: Day.js, Axios
+### 2.1 ネットワーク
 
-### 2.2 バックエンド (Go)
+VPC は 2 つのアベイラビリティゾーンにまたがり、パブリックサブネットとプライベートサブネットをそれぞれ 2 つずつ配置しています。
 
-- **Framework**: Go 1.26, Gin
-- **Database Access**: sqlx, PostgreSQL（現在は RDS PostgreSQL、今後 Aurora へ移行。§5.1 参照）
-- **Cache & Storage**: go-redis/v9（Redis Lua によるアトミック操作）
-- **AWS Integration**: aws-sdk-go-v2
-- **Logging**: Zap（構造化ログ）
+```mermaid
+flowchart TB
+  IGW["Internet Gateway"]
+  subgraph VPC["VPC"]
+    subgraph AZ1["アベイラビリティゾーン 1"]
+      PUB1["パブリックサブネット<br/>ALB · ECS · RDS"]
+      PRIV1["プライベートサブネット<br/>Redis · Lambda"]
+    end
+    subgraph AZ2["アベイラビリティゾーン 2"]
+      PUB2["パブリックサブネット<br/>ALB"]
+      PRIV2["プライベートサブネット<br/>Lambda"]
+    end
+  end
+  IGW --- PUB1
+  IGW --- PUB2
+```
 
-### 2.3 クラウド・インフラ (AWS)
+- ALB のセキュリティグループは CloudFront のマネージドプレフィックスリストからのみ許可しています。ECS は ALB からのトラフィックのみ受け付けます。RDS と Redis は VPC の CIDR からの接続を許可し、加えて管理者の IP アドレスをホワイトリストで許可しています。
+- **NAT Gateway と VPC エンドポイントは配置していません。** 固定費を抑えるためです（NAT Gateway は東京リージョンで月額約 45 ドル）。この構成による設計上の影響は次のとおりです。
+  - Lambda はプライベートサブネットに配置し、VPC 内の RDS と Redis にのみアクセスします。DB パスワードは環境変数で渡します
+  - ECS は Scheduler、Cognito、S3 などの AWS API を呼び出す必要があるため、パブリックサブネットに配置しパブリック IP を割り当てています
+  - RDS はパブリックアクセスを有効にし、セキュリティグループのホワイトリストで接続元を限定しています。ローカルから直接接続してデバッグするためです
 
-- **Compute**: ECS Fargate（常駐 1 台。拡張分は Spot）, AWS Lambda (Go Runtime)
-- **Database & Cache**: PostgreSQL（**現在：RDS** / 今後：Aurora Serverless v2、§5.1 参照）, ElastiCache Redis
-- **Storage & Lifecycle**: S3（商品画像。ライフサイクル階層化は §5 参照）
-- **Messaging & Event**: SNS Standard（発行にタイムアウトを設定、失敗時は警告のみ）, EventBridge Scheduler
-- **Network & Security**: ALB（CloudFront からのみ受け付け）、Amazon Cognito；Route53 / ACM / WAF は今後追加する項目です（§5 参照）
-- **Deployment & Monitoring**: ECS ローリングデプロイ（100% / 200%、デプロイサーキットブレーカー有効）, CloudWatch（メトリクス / アラーム / ダッシュボード）
+### 2.2 エントリポイントとコンピューティング
 
-### 2.4 IaC & CI/CD
+- **CloudFront**：デフォルトパスは S3、`/api/*` は ALB へ転送します。API のパスはキャッシュを無効化しています。ページ配信用の S3 バケットは非公開で、CloudFront からの読み取りのみ許可しています。
+- **ECS Fargate**：ARM64、0.25 vCPU / 512 MB、タスクは常時 1 つ。アプリケーションはステートレスに設計しています。
+- **ローリング更新**：最小ヘルス率 100%、最大 200% で、新旧タスクを並存させてサービスを停止させません。デプロイの circuit breaker を有効化し、新タスクの起動に失敗した場合は自動でロールバックします。
+- **ECR**：直近 5 つのイメージタグを保持します。DB パスワードは Secrets Manager に保管し、タスク定義から注入します。
 
-- **Terraform**（モジュール分割。state は S3、ロックは S3 ネイティブの `use_lockfile`）
-- **GitHub Actions**（ビルド / テスト / **タグ push で自動リリース** / Terraform plan。インフラの apply は人が実行します。§7 参照）
-- **リリース用の認証**：OIDC で一時クレデンシャルを取得（長期キーは保存しません）+ パイプラインごとに最小権限のロール + 環境承認（dev は自動 / prod は人の確認）、§7 参照
+### 2.3 データと認証
+
+- **RDS PostgreSQL 15**：`db.t4g.micro`、シングル AZ、ストレージ暗号化。Aurora Serverless v2 ではなく RDS を選んだのは、負荷が予測可能で現状は低いためです。システムは毎分データベースをスキャンしており、終日接続が発生します。Aurora の自動一時停止が要求するアイドル条件を満たさず、0 ACU まで縮小するコストメリットを得られません。
+- **ElastiCache Redis 7.1**：シングルノード、プライベートサブネットに配置。在庫のリアルタイム判定とキャッシュを担います。
+- **S3**：商品画像はブラウザから署名付き URL で直接アップロードします。API はアップロード先の署名を発行するだけです。
+- **Cognito**：メールアドレスとパスワードでログインします。トークンの有効期限は access / id が 24 時間、refresh が 30 日です。API は Cognito の公開鍵を使ってローカルで JWT の署名を検証します。ユーザーのロールは `users` テーブルに保持し、Redis に 5 分間キャッシュします。
+
+### 2.4 非同期処理：Lambda と EventBridge
+
+Lambda 関数は 2 つあります。**注文の期限切れ処理**（支払期限を過ぎても未払いの注文をキャンセル）と、**抽選の開票**です。いずれも実行タイミングが明確で、リアルタイム応答が不要で、1 回の実行が数秒で完了するため、呼び出し課金の Lambda に向いています。
+
+各関数には独立した 2 つのトリガーパスがあり、両方が同時に有効です。
+
+|           | パス 1：対象を指定して実行                                                              | パス 2：毎分スキャン                        |
+| --------- | --------------------------------------------------------------------------- | ---------------------------------- |
+| トリガー      | API が業務イベントの発生時に Scheduler へワンタイムスケジュールを登録し、時刻到来時に Scheduler が Lambda を呼び出す | EventBridge Rule が毎分 Lambda を呼び出す  |
+| 注文の期限切れ処理 | 注文成功時に「現在時刻 + 15 分」のスケジュールを登録し、期限までに未払いならキャンセルして在庫を戻す                       | 期限を過ぎた未払い注文（フラッシュセールと抽選の両方）をスキャンする |
+| 抽選の開票     | 抽選の作成時に開票時刻のスケジュールを登録し、時刻到来時に開票する                                           | 開票時刻を過ぎても「応募中」の記録が残る抽選をスキャンする      |
+
+- 2 つのパスは同じ関数を呼び出し、イベントの `mode` フィールド（`cancel` / `draw` / `scan`）で処理を分岐します。パス 1 は処理を遅延なく実行し、パス 2 はスケジュールの登録・配信・実行のいずれかで発生した取りこぼしを回収します。
+- ワンタイムスケジュールは注文や抽選ごとに実行時に作成する必要があるため、外部通信が可能な API が Scheduler を呼び出します。定期スキャンは固定のバッチ処理なので Terraform で静的に Rule として定義でき、Lambda 側に外部通信は不要です。
+
+### 2.5 監視とアラート
+
+CloudWatch はメトリクス、ログ、アラート、ダッシュボードをカバーし、各サービスと直接連携するため、CloudWatch のネイティブ機能を採用しています。
+
+- **ダッシュボード**：8 つのウィジェット（タイトルテキスト 1、メトリクスグラフ 6、アラーム状態 1）で、ALB、ECS、RDS、Lambda、ElastiCache をカバーします。
+- **12 個のアラーム**を SNS（メール購読）へ通知します。ALB の異常ターゲット、5xx、応答時間。ECS の CPU とメモリ。RDS の CPU、空き容量、接続数。ElastiCache の CPU。2 つの Lambda のエラーと、開票関数のスロットリング。在庫データは Redis に保持するため、Evictions（データの追い出し）もダッシュボードに表示しています。
+
+### 2.6 コスト管理
+
+用途に応じてクラウド環境を作成・削除する 2 つのスクリプトを用意しています。
+
+- `scripts/spinup.sh`：依存関係の順に全リソースを作成し、ALB のヘルスチェック通過と、CloudFront 経由で API がデータを返すことを確認します。
+- `scripts/spindown.sh`：課金対象のリソースを逆順に削除し、月額を約 76 ドルから約 1 ドルまで下げます。`frontend` / `auth` / `state` / `shared` / `storage` はデフォルトで残します。`frontend` を残すのは公開 URL を変えないためです。`init_db.sql` のシードユーザーの ID は Cognito の `sub` と 1 対 1 で対応しており、Cognito を作り直すと `sub` が変わるため `auth` を残します。`storage` にはユーザーがアップロードした画像があります。
+
+停止中はページを閲覧できますが API は利用できません（ALB は `compute` とともに削除されます）。`spinup.sh` を実行すると復旧します。
+
+### 2.7 選定とトレードオフ
+
+| 論点        | 採用                                  | 代替案                             | 理由                                                                           |
+| --------- | ----------------------------------- | ------------------------------- | ---------------------------------------------------------------------------- |
+| API の実行形態 | ECS Fargate                         | EC2 上での自前運用、API 全体を Lambda に載せる | ノード運用が不要。常駐プロセスは Redis のコネクションプールを再利用できるが、Lambda では接続の再利用とコールドスタートへの対応が必要になる |
+| 在庫判定      | Redis でリアルタイム判定、PostgreSQL を永続記録とする | データベースの行ロックのみ                   | リクエストが集中すると行ロックで待ち行列が発生し、待ち時間が増幅する                                           |
+| 遅延実行      | Scheduler のワンタイムスケジュール              | アプリケーション内のタイマー                  | 秒単位で指定でき、実行後に自動削除される。アプリ内タイマーは複数インスタンスで重複実行される                               |
+| 認証        | Cognito                             | JWT の自前発行                       | パスワードのハッシュ化、トークン発行、公開鍵のローテーションを自前で実装する必要がない                                  |
+| CI/CD     | GitHub Actions + OIDC               | CodePipeline                    | コードが既に GitHub 上にある。OIDC なら長期キーが不要                                            |
 
 ---
 
-## 3. コアデータフロー
+## 3. IaC と CI/CD
 
-### 3.1 フラッシュセール（先着購入）フロー
+### 3.1 Terraform
 
+9 つのモジュールに分割し、それぞれ独立した state を持ちます。`lambda` / `compute` / `frontend` は `terraform_remote_state` で上流の出力を参照し、`monitoring` はリソース名で検索します。
+
+| モジュール              | 内容                                                     |
+| ------------------ | ------------------------------------------------------ |
+| `state` / `shared` | state 用の S3 バケット。GitHub OIDC Provider と CI 用の plan ロール |
+| `data`             | VPC、サブネット、RDS、ElastiCache、セキュリティグループ                   |
+| `auth` / `storage` | Cognito。商品画像用の S3 バケット                                 |
+| `lambda`           | Lambda、EventBridge、Scheduler ロール、SNS                   |
+| `compute`          | ALB、ECS、ECR、Secrets Manager                            |
+| `frontend`         | S3 + CloudFront（dev / prod）                            |
+| `monitoring`       | ダッシュボードとアラーム                                           |
+
+実行順序：`state` → `shared` → `data` → `auth` → `storage` → `lambda` → `compute` → `frontend` → `monitoring`
+
+**分割の基準は変更頻度とコストのライフサイクルです。** `data` は作成に 8〜10 分かかり、主要なコスト要因でもあります。`compute` / `lambda` はリリースごとに変わります。`auth` / `storage` はユーザーと画像データを保持し、ライフサイクルが独立しています。この分割により、モジュール単体の plan と apply は数分で完了し、環境を層ごとに破棄・再作成できます。トレードオフは、モジュールをまたぐ変更では順序に沿って複数回 apply する必要があることです。
+
+### 3.2 CI/CD パイプライン
+
+AWS の認証はすべて GitHub OIDC で取得した一時認証情報を使用しています。workflow は 7 本です。
+
+```mermaid
+flowchart LR
+    PR["Pull Request"] --> CI["ビルドとテスト<br/>API / Lambda / フロントエンド"]
+    PR --> TFP["Terraform<br/>フォーマットチェック + plan"]
+    DEV["develop へ push"] --> FED["フロントエンド配信<br/>development"]
+    MAIN["main へ push"] --> FEP["フロントエンド配信<br/>production（承認あり）"]
+    TAG["タグ v* の push<br/>（main 上のみ）"] --> ACD["API リリース"]
+    TAG --> LCD["Lambda リリース"]
+    ACD --> ECS["ECR → ECS ローリング更新"]
+    LCD --> LAM["新バージョン → エイリアス live"]
+    CI --> NOTIFY["失敗通知"]
 ```
-[ユーザー] 「今すぐ購入」をクリック
-   ↓
-[フロントエンド] リクエスト送信（処理中はボタンを無効化）
-   ↓ POST /api/v1/flash/buy
-[API - Gin]
-   ① Cognito JWT を検証
-   ② 販売期間を検証（starts_at / ends_at。期間外は即拒否）
-   ③ Redis Lua でアトミックに在庫を減算（同期・超売り防止）
-      ├─ 在庫不足 → 「売り切れ」を返す
-      └─ 減算成功 → 続行
-   ④ トランザクションで注文を書き込み (UNPAID, expires_at = now + 15min) + DB 在庫 -1
-   ⑤ at(expires_at) のワンタイム Schedule を登録（失敗時はログのみ。cron がバックアップ）
-   ⑥ { orderId, status: "QUEUED" } を返す
-```
 
-> **購入を同期にしている理由**：在庫の減算は Redis 単一スレッドの原子性に依存しており（超売り防止の基盤）、メッセージキューによる非同期処理にはできません。またユーザーは結果を即座に知る必要があり、非同期化はポーリングやプッシュの複雑さを招くだけです。注文タイムアウトの取消と在庫復元は独立したバッチ処理です（デプロイ形態は §6）。
+| workflow           | トリガー            | 内容                                                                      |
+| ------------------ | --------------- | ----------------------------------------------------------------------- |
+| API CI / Lambda CI | push / PR       | build / vet / test。Lambda は `build.sh` が先に `go test` を実行し、その後 zip を生成する |
+| API CD / Lambda CD | タグ `v*` の push  | 1 つのタグで API と Lambda の両方がリリースされる。API のイメージタグにはタグ名をそのまま使う                |
+| Frontend           | push / PR       | lint / build の後、S3 へ配信し CloudFront を無効化する                               |
+| Terraform CI       | PR のみ           | フォーマットチェックと、8 モジュールの並列 plan（`apply` はローカルで手動実行）                         |
+| CI Notify          | 他の workflow 完了後 | 失敗時に Issue を作成し、復旧すると自動でクローズする。Slack 通知は必要に応じて有効化                       |
 
-### 3.2 抽選フロー
+### 3.3 リリースとロールバック
 
-```
-[EventBridge Scheduler] draw_at の時刻に発火（抽選の作成時にワンタイム Schedule を自動登録）
-   ↓
-[Lambda - LotteryDrawer]
-   ① 応募一覧を読み込む
-   ② crypto/rand で乱数を生成（math/rand は使用しない）
-   ③ Fisher-Yates でシャッフル
-   ④ 当選者を DB に書き込む（当選は UNPAID + 72 時間の pay_deadline、残りは LOST）
-   ⑤ SNS イベントを発行 (lottery.drawn)
-```
+- **API リリース**：arm64 イメージをビルドして ECR へ push → 稼働中のタスク定義を取得し、イメージだけを差し替えて新しい revision を登録 → ECS サービスを更新して安定を待つ → 稼働中の revision と新しく登録した revision を比較する。デプロイ失敗で自動ロールバックした場合もサービスは stable になるため、比較結果で「デプロイ成功」と「失敗後のロールバック完了」を区別します。
+- **Lambda リリース**：コードを更新して完了を待つ → 新しいバージョンを発行 → `live` エイリアスを切り替える。トリガーはすべてエイリアスを指しています。
+- **ロールバック**：Lambda は `update-alias` で旧バージョンに、API は `update-service` で旧 revision に戻します。
+- **運用上の取り決め**：チェック系のジョブは中断を許容し、リリース系のジョブは中断しません。リソース構造は Terraform、バージョンは CI が管理します（`ignore_changes`）。タグは main 上にのみ存在でき、develop → main → タグの順序を強制します。
+
+### 3.4 権限設計
+
+- GitHub Actions は 5 つの IAM ロール（terraform-plan、api-dev、lambda-dev、frontend-dev、frontend-prod）を使い分け、用途ごとに権限をリソース範囲で絞っています。たとえば API リリース用のロールは ECR への push と ECS の更新など、リリースに必要な権限だけを持ち、インフラの変更は手動で行います。
+- GitHub Environments のデプロイ制限：`development` は `develop` ブランチと `v*` タグ、`production` は `main` のみを許可し、人手による承認を要求します。
+- Terraform plan のジョブは同一リポジトリの PR に限定しています。plan ロールは state バケット（DB パスワードを含む）を読めるため、公開リポジトリでは fork からの PR が PR 側の workflow 定義で実行され、認証情報を窃取される恐れがあります。
 
 ---
 
-## 4. プロジェクト構造
+## 4. 二重予約防止と公平な抽選
 
+### 4.1 二重予約防止
+
+フラッシュセールは瞬間的な同時アクセスが集中します。すべてのリクエストがデータベースの同じ行に対して `stock = stock - 1` を実行すると、行ロックで待ち行列が発生します。そこで在庫のリアルタイム判定は Redis に置き、データベースは最終的な記録として扱います。
+
+```mermaid
+sequenceDiagram
+    participant C as ユーザー
+    participant A as API
+    participant R as Redis
+    participant D as PostgreSQL
+
+    C->>A: 購入リクエスト
+    A->>R: Lua スクリプトでアトミックに引き当て
+    alt 在庫不足
+        A-->>C: 「完売」を返す
+    else 引き当て成功
+        A->>D: トランザクション：注文作成 + 在庫減算
+        alt 失敗
+            A->>R: 在庫を戻す
+        else 成功
+            A-->>C: 注文番号を返す
+        end
+    end
 ```
-flashbuy/
-├── frontend/                       # React + TypeScript のフロントエンド
-│   ├── src/
-│   │   ├── components/             # 共通コンポーネント (TicketCard, PaymentMockModal, Countdown, OrderStatusModal, StockDots, layout)
-│   │   ├── hooks/                  # カスタム Hook (useCountdown)
-│   │   ├── pages/                  # 画面 (Home, FlashList, Flash, LotteryList, Lottery, Search, MyPage, Admin, Login, Register, Privacy)
-│   │   ├── services/               # API 通信層 (api.ts, request.ts)
-│   │   ├── stores/                 # Zustand 状態管理 (authStore, orderStore)
-│   │   └── types/                  # TypeScript 型定義 (index.ts)
-│   └── Dockerfile                  # フロントエンドのイメージ
-├── api/                            # Go API 本体 (Gin)
-│   ├── cmd/server/                 # エントリポイント (main.go)
-│   ├── config/                     # 設定読み込み (viper)
-│   ├── controllers/                # HTTP コントローラ (auth / flash+buy / lottery+apply / payment / admin / my / search / home / upload)
-│   ├── middleware/                 # ミドルウェア (AuthRequired / RequireRole)
-│   ├── models/                     # データモデル (db/json tag)
-│   ├── pkg/                        # 共通パッケージ (cache / database / logger / response / auth / s3 / scheduler / task)
-│   ├── router/                     # ルーティング定義
-│   ├── Dockerfile / .dockerignore  # API イメージ（マルチステージビルド、ARM64）
-│   ├── docker-compose.yml          # ローカルの Postgres + Redis
-│   ├── init_db.sql                 # テーブル作成 + シードデータ（正本）
-│   └── config-*.yaml(.example)     # ローカル / dev / クラウドの設定テンプレート（実ファイルはコミットしません）
-├── lambdas/                        # AWS Lambda の非同期タスク（独立モジュール、build.sh で zip 化）
-│   ├── lottery_drawer/             # 抽選開票（draw の純粋ロジック + handler + sns + schedule + build.sh）
-│   └── order_expirer/              # 注文の期限切れ取消（at の正確な取消 + cron スキャン、テスト付き + build.sh）
-├── terraform/                      # Terraform インフラ（ディレクトリごとに state を分離）
-│   ├── state/                      # state の保管先（S3 + ロック）
-│   ├── data/                       # VPC + RDS PostgreSQL + ElastiCache Redis
-│   ├── auth/                       # Cognito User Pool + App Client
-│   ├── shared/                     # GitHub Actions 用 OIDC Provider + Terraform plan 用ロール
-│   ├── storage/                    # 商品画像の S3（公開読み取り + CORS）
-│   ├── lambda/                     # Lambda + Scheduler + SNS
-│   ├── frontend/                   # フロントのホスティング（S3 + CloudFront、/api 転送含む）
-│   ├── monitoring/                 # 監視（CloudWatch アラーム + ダッシュボード + 通知）
-│   └── compute/                    # ECR + ECS Fargate + ALB（ローリングデプロイ）
-├── .github/workflows/              # CI/CD（7 本。§7 参照）
-├── data_design.md                  # データベース設計とバックエンド設計
-└── README.md / README_zh.md        # アーキテクチャの完成形（日中バイリンガル）
-```
+
+1. **Redis によるアトミックな引き当て**：Lua スクリプト 1 回の呼び出しで「在庫の読み取り、0 かどうかの判定、1 の減算」を完了します。3 つのステップに分けると、2 つのリクエストが同時に判定を通過してそれぞれ 1 つずつ減算してしまいます
+2. **データベースの条件付き更新**：トランザクション内で `UPDATE ... WHERE stock > 0` を実行します。テーブルには `CHECK (0 <= stock <= total_stock)` 制約もあり、最後の砦として機能します
+3. **失敗時の在庫戻し**：データベースのトランザクションが失敗した場合、Redis の在庫を戻します
+
+
+補足：
+
+- 在庫キーに TTL は設定していません。在庫は取引データであり、期限切れになると実際の値と乖離するためです。初回アクセス時にデータベースから読み込み、同時に読み込んだ場合は最初の書き込みだけが有効になります。
+- Redis が利用できない場合、在庫とキャッシュの読み取りは自動的にデータベースへフォールバックします。
+
+### 4.2 注文の期限切れ処理
+
+注文の期限切れを放置すると在庫を戻せず、商品が売り切れのまま表示され続けます。トリガーは [2.4](#24-非同期処理lambda-と-eventbridge) を参照してください。処理には次の 2 点があります。
+
+- **再実行可能**：キャンセルの SQL には状態条件（未払い）と期限条件の両方が付いています。重複して実行しても、利用者がちょうどその時刻に支払っても、支払済みの注文は変更されません。
+- **キャンセルと在庫戻しを同一トランザクションで行う**：別々にコミットすると、注文はキャンセルされたのに在庫が戻らない行が残ります。その行は以降スキャン対象にならないため、在庫は永久に戻りません。
+
+### 4.3 公平な抽選
+
+抽選の時刻指定実行と毎分スキャンが同じ抽選を同時に処理する可能性があるため、開票結果が 1 回だけ生成されることを保証する必要があります。トランザクションの手順は次のとおりです。
+
+1. 対象の抽選レコードに行ロック（`FOR UPDATE`）をかけ、競合した側は待機します
+2. 「応募中」のレコードをすべて読み取ります。0 件なら開票済みと判断して終了します
+3. 暗号論的乱数でシャッフル（Fisher-Yates）し、先頭 N 件を当選者とします
+4. 応募者をすべて「落選」に更新した後、当選者を「未払い」に変更し、72 時間の支払期限を書き込みます
+5. コミット後に SNS へイベントを発行します（タイムアウト 3 秒、失敗しても開票結果には影響しません）
+
+- 行ロックは同時開票による上書きを防ぐために必要です。行ロックがないと、後から来た側が先に確定した「落選」を「未払い」に戻してしまい、当選者数が枠を超えます。
+- 重複応募は `UNIQUE (user_id, lottery_id)` 制約で防いでおり、データベース層でアトミックに判定します。
 
 ---
 
-## 5. 設計判断とトレードオフ
+## 5. トラブルシューティング
 
-| 項目 | 現在採用 | 今後の目標 | 判断理由 |
-| :--- | :--- | :--- | :--- |
-| **CDN / WAF** | CloudFront（フロント配信 + `/api` 転送） | + AWS WAF | エッジ流量が少ないため、WAF は導入せず構成を簡素化します |
-| **ストレージ階層化** | S3 Standard（単一バケット） | Standard-IA / Glacier のライフサイクル | 画像量が少ないため、当面は階層化しません |
-| **可観測性** | CloudWatch（メトリクス / アラーム / ダッシュボード + ログ 7〜14 日保持） | ビジネスメトリクス（EMF）+ AWS X-Ray | 常駐の監視ミドルウェア（Datadog / Mackerel / Grafana）は導入しません。PoC 規模では固定費と運用負荷に見合いません（§8 参照） |
-| **デプロイ方式** | ECS ローリングデプロイ（100% / 200%） | + ブルー/グリーン | 本アカウントでは CodeDeploy が利用できません（サービス単位の制限）。ローリングデプロイは新タスクがヘルスチェックを通過してから旧タスクを停止するため、リクエストは落ちません。現規模では十分です |
-| **SNS** | 開票結果のイベント通知（lottery.drawn） | 必要に応じて FIFO | 開票 Lambda が SNS でビジネスイベントを発行します。発行にはタイムアウトを設定し、失敗時は警告のみ。結果は DB を正とします |
-| **データベース** | **RDS PostgreSQL** | Aurora Serverless v2 | §5.1 参照 |
-| **Redis** | シングルノード | Cluster マルチノード | 現規模では単一ノードでロジックと性能の検証に十分です |
-| **決済** | ステートマシンのモック | 実際の決済 API | 決済ステータス遷移（UNPAID → PAID → CANCELLED）のロジック検証に絞ります |
+#### 開票スケジュールの登録が失敗しても、エラーが報告されない
 
-### 5.1 データベース選定：RDS PostgreSQL を採用した理由
+- **現象**：抽選作成の API は成功を返しますが、Scheduler に開票スケジュールが存在しません。
+- **原因**：`CreateSchedule` の認可対象は schedule group 配下の `schedule/<group>/*` です。IAM ポリシーのリソース ARN を schedule group 自体で記述していたため、呼び出しが拒否されていました。API は登録の失敗をログに記録するだけで、レスポンスは成功を返していました。
+- **対応**：ARN を修正し、毎分スキャンを必須の構成要素として残しました。2 つのトリガーパスがここから併存しています。外部呼び出しの失敗をログ記録だけで済ませる場合は、そのログにアラートを設定する必要があります。
 
-| 観点 | Aurora Serverless v2 | RDS PostgreSQL（現在採用） |
-| :--- | :--- | :--- |
-| **伸縮性** | 0.5〜N ACU の自動スケール。フラッシュセールのピークに適します | 固定インスタンス。手動またはスケジュールでのスケールが必要 |
-| **可用性** | マルチ AZ とリードレプリカが標準 | Multi-AZ の明示的な有効化が必要 |
-| **互換性** | Aurora PostgreSQL 方言で個別差異がある | 完全に標準の PostgreSQL。移行情報と運用ノウハウが最も豊富 |
-| **コスト** | 最低 0.5 ACU（約 $44/月）。アイドル時も課金 | `db.t4g.micro` などの小規模スペックが選びやすく、**無トラフィックでも低コスト** |
-| **運用成熟度** | 比較的新しく、運用知見はまだ少ない | 標準 PostgreSQL。運用資料とツールチェーンが最も充実 |
-| **適用シーン** | 負荷変動が激しい、AWS ネイティブな新規案件 | 負荷が予測可能、予算重視、安定性を優先する通常案件 |
+#### プライベートサブネット内の Lambda が AWS API 呼び出しで待ち続ける
 
-**判断の根拠**：
+- **現象**：Lambda からの SNS 発行に 51 秒かかり、呼び出しが長時間返りません。同種の呼び出しは関数のタイムアウトまで待ち続けます。
+- **原因**：VPC に NAT Gateway も VPC エンドポイントもないため、接続要求に対する応答が返らず、SDK が再試行を続けていました。
+- **対応**：DB パスワードを環境変数で注入する方式に変更（VPC 内の Lambda から Secrets Manager へ到達できないため）。開票関数のスケジュール登録処理を停止し、72 時間の支払期限の処理は毎分スキャンが担うようにしました。外部呼び出しには短いタイムアウトを設定しています（SNS は 3 秒）。
 
-- 現在インスタンス負荷はほぼゼロで、Aurora の最低 0.5 ACU の常駐課金（約 $44/月）は不要なコストです
-- RDS は標準 PostgreSQL のため、既存の監視・バックアップ・移行ツールをそのまま利用できます
-- フラッシュセールのピークはリザーブドインスタンスと手動／スケジュールスケールで対応できます。将来、予測不能なトラフィックスパイクが発生した場合に、Aurora Serverless v2 の自動スケールを再評価します
+#### スケジュールがデータベース上の期限より数ミリ秒早く実行される
+
+- **現象**：注文の期限が切れても在庫がすぐに戻らず、次の毎分スキャンまで反映されません。
+- **原因**：データベースに書き込む期限時刻と、スケジュールを登録する時刻で現在時刻をそれぞれ取得しており、数ミリ秒の差が生じていました。スケジュールがデータベース上の期限より早く発火し、「まだ期限切れではない」と判定されてキャンセルされず、ワンタイムスケジュールは実行後に削除されます。
+- **対応**：期限時刻の計算を 1 回だけ行い、データベースへの書き込みとスケジュール登録で同じ値を使うようにしました。
 
 ---
 
-## 6. 非同期タスクのデプロイ形態（Lambda の位置づけ）
+## 6. その他
 
-### 6.1 注文タイムアウトの取消 + 在庫復元
+### 6.1 API の取り決め
 
-注文作成時に `expires_at` を書き込みます（フラッシュセール = 注文 + 15 分、抽選 = 当選 + 72 時間）。タイムアウト取消は 2 層構成です：正確な時刻での取消と、スキャンによるバックアップ。
+すべてのレスポンスは HTTP ステータス 200 を返し、業務上の結果はレスポンスボディの `code` で表します（`0` 成功、`10001` 在庫なし、`10002` 重複応募、`10003` 支払期限切れ。ほかに 400 / 401 / 403 / 500）。ページが SPA で、CloudFront が 403 / 404 を一律でトップページに置き換えるため、API が 404 を返すと HTML に置き換わってしまいます。トレードオフは、ALB の 5xx アラームがシステムエラーのみを反映し、業務上のエラーはアプリケーションログで集計する必要があることです。
 
-**① 正確な時刻 — EventBridge Scheduler `at()`**
+### 6.2 テスト
 
-フラッシュセールの購入時にワンタイムの `at(expires_at)` Schedule を登録し、時刻が来たらその注文のみをトリガーします。
+注文の期限切れ処理に 13 個、開票ロジックに 4 個のテストがあり、いずれも CI で実行されます。API とフロントエンドにはテストがありません。
 
-```
-フラッシュセールの購入成功
-    → at(expires_at) のワンタイム Schedule を登録（名前は expire-{orderId}。再登録で上書き）
-    → OrderExpirer Lambda（mode=cancel）：注文を取消 + Redis/DB の在庫を復元
-    → トリガー後、Schedule は自動削除
-```
+### 6.3 既知の制限と今後の対応
 
-> **抽選でこの経路を使わない理由**：当選注文には `at()` の正確な取消を使用しません。開票 Lambda はプライベートサブネットにあり（NAT なし、Scheduler の VPC Endpoint もなし）、Lambda からインターネット経由で AWS API を呼ぶと SYN がドロップされ 60 秒のタイムアウトまで停止し、開票自体が失敗します。当選分のタイムアウトは下記の cron スキャンで処理します。支払期限は 72 時間あり、枠数制で在庫の即時復元も不要なため、分単位の遅延は許容できます。
+| 項目 | 優先度 | 現状と次のステップ |
+|---|---|---|
+| API 層にテストがない | 高 | 在庫の引き当てと注文の状態遷移がこの層に集中している。次は同時購入と状態遷移のテストケースを追加する |
+| 負荷試験が未実施 | 高 | フラッシュセール経路の同時接続上限と売り越しの検証データが未取得。在庫の引き当てと注文トランザクションの負荷試験を予定 |
+| 当選枠の期限切れ後に繰り上げがない | 高 | 当選者が期限までに支払わない場合は `CANCELLED` にするだけで、空いた枠の繰り上げ機構がない |
+| 抽選の応募料を受け取る経路がない | 高 | 決済 API は `UNPAID` のみを扱うため、現状は非ゼロの応募料を徴収できない |
+| HTTPS と独自ドメイン | 中 | HTTP:80 のみでオリジンへ接続し、CloudFront のデフォルト証明書を使用。ACM、Route 53、ALB の 443 リスナーを追加する |
+| ネットワークと鍵管理 | 中 | NAT / VPC エンドポイントがなく、Lambda の DB パスワードは環境変数。ネットワーク条件が整い次第 Secrets Manager に統一する |
+| スペックと環境 | 中 | ECS は 1 タスク、RDS はシングル AZ、Redis はシングルノード。バックエンドは 1 環境のみで、prod のページも dev の ALB を参照している |
+| 信頼性とセキュリティ | 中 | `/ping` はデータベースと Redis を確認せず、依存先の障害時も ALB がタスクを切り離さない。HTTP サーバーに読み書きのタイムアウトがない。ログイン、注文、応募にレート制限がない。登録はメール確認を省略している |
+| 開票通知 | 低 | 開票後に SNS へイベントを発行するが、Lambda は外部通信できないサブネットにあり要求が SNS に届かない。トピックにも購読者がいない。ネットワーク条件が整い次第、メールやプッシュ通知を接続する |
+| 業務メトリクスの監視 | 中 | 現状はインフラのメトリクスのみ。EMF で注文成功数、完売数、応募数、当選数などの業務メトリクスを出力する予定 |
 
-**② バックアップ — EventBridge cron スキャン**
+### 6.4 開発体制
 
-`at()` には登録漏れの可能性があります（登録失敗、Lambda 失敗、スケジュール異常）。そのため 1 分間隔の cron でスキャンして回収します：`WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（部分インデックス `idx_*_orders_expire` にヒット。1 回の件数を制限して負荷を抑えます。抽選側の条件は `pay_deadline`）。漏れた注文は遅くとも次のスキャンで回収されます。
+個人開発です。期間は約 9 週間（2026-07 から 2026-10）で、AWS インフラ、Terraform、GitHub Actions、アーキテクチャ設計と結合テスト・トラブルシューティングを担当しました。Go とフロントエンドのコード作成補助、設計方針の相談時の参考として生成 AI を利用しています。
 
-| 設計ポイント | 実装 |
-| :--- | :--- |
-| 冪等性 | 取消 SQL はすべて `status='UNPAID'` と `expires_at < now()` の 2 条件付きで、`UPDATE ... RETURNING` により在庫 ID をアトミックに取得します。複数回実行しても二重取消・二重復元は発生しません |
-| 在庫復元 | Redis は Lua による条件付き復元（キーが存在する場合のみ INCR。存在しなければ作成しない）を行い、同時に DB の stock を復元します。Redis に到達できない場合は DB のみ復元し、次のスキャンで補完します |
-| ローカル環境 | `expirer_function_arn` が未設定の場合（ローカル / Lambda 未デプロイ）、API 内の goroutine（1 分間隔）が同じスキャンを実行します。空白期間を作らないためです |
+### 6.5 ローカルでの実行
 
-### 6.2 抽選開票（Lottery Drawer）
-
-| 特徴 | 説明 |
-| :--- | :--- |
-| トリガー時刻が明確 | 抽選商品ごとの `draw_at` に EventBridge Scheduler が発火します |
-| 即時応答が不要 | ユーザーは結果を待たない純粋なバックグラウンド処理です |
-| 実行時間が短い | `lottery_orders` から N 件ランダムに取得するだけなので数秒で完了し、Lambda の 15 分上限には遠く及びません |
-| 商品ごとに独立してスケジュール | 抽選商品を作成するたびにワンタイム Schedule を登録するため、互いに干渉しません |
-
-**① 正確な時刻 — EventBridge Scheduler `at()`**
-
-```
-抽選商品を作成（Admin API）
-    → 同時に EventBridge Scheduler CreateSchedule を呼び出す（同名時は Update で上書き）
-    → draw_at の時刻に 1 回だけ発火
-    → Lambda が実行（mode=draw）：lottery_orders から winner_count 件をランダムに UNPAID へ、残りを LOST へ
-    → トリガー後、Schedule は自動削除
+```bash
+cd api && docker compose up -d                 # PostgreSQL 15 + Redis 7
+PGPASSWORD=postgres psql -h localhost -U postgres -d flashbuy -f init_db.sql
+APP_ENV=local go run ./cmd/server              # API :8080
+cd ../frontend && pnpm install && pnpm dev     # ページ :5173
 ```
 
-**② バックアップ — EventBridge cron スキャン**
+`APP_ENV` のデフォルトは `dev`（クラウドの RDS を参照する設定）で、ローカルで実行する場合は `APP_ENV=local` を明示します。`init_db.sql` は `TRUNCATE` を含むため、クラウドの RDS に対して実行しないでください。ローカル実行には AWS の認証情報が必要で、登録・ログインは実際の Cognito にアクセスします。クラウド環境は `scripts/spinup.sh` で作成します。
 
-ワンタイム Schedule は「登録」と「配信」の 2 段階です。登録失敗（IAM 権限、クォータ、パラメータ誤り）、配信失敗、Lambda 失敗のいずれかが発生すると、その抽選は開票されません。一方で管理画面は成功を返し、ユーザー側には「開票待ち」が表示されるだけです。
+### 6.6 ディレクトリ構成
 
-そこで 1 分間隔の cron でスキャンし、「`draw_at` を過ぎても `WAITING` の応募が残っている」抽選を取得します（`draw_at` 昇順、1 回につき最大 10 件）。
+```
+api/          Go API（ECS Fargate で稼働）
+frontend/     Web ページ（静的ファイル）
+lambdas/      order_expirer / lottery_drawer
+terraform/    9 モジュール
+scripts/      spinup.sh / spindown.sh / 運用マニュアル.md
+.github/      workflow 7 本
+data_design.md  データ構造とバックエンド設計（正本は api/init_db.sql）
+```
 
-| 設計ポイント | 実装 |
-| :--- | :--- |
-| 冪等性 | 開票は「全 `WAITING` を LOST にした後、当選者のみを UNPAID に上書き」する手順です。`WAITING` が空の場合はそのまま返します。繰り返し実行しても結果は変わりません |
-| 並行安全性 | `drawLottery` 内で `lottery_items` の行に `FOR UPDATE` を付与し、正確な時刻の経路とスキャンが重なった場合は直列化します。後から到着した側は `WAITING` が空になったことを検知して正常終了します |
-| 失敗を波及させない | 1 件の開票が失敗してもログのみで残りを続行します。失敗分は `WAITING` のまま残るため、次回のスキャンで自動的に再試行されます |
-| なぜ Scheduler ではなく Rules か | 周期スキャンは固定のバッチ処理なので、Terraform で EventBridge Rules として静的に定義します。`at()` は注文 / 商品ごとに実行時に作成する必要があり、NAT のある API 側から Scheduler API を呼ぶ形になります。どちらもサービス側からのプッシュ呼び出しで、Lambda に求められるネットワーク要件に違いはありません |
-
-### 6.3 デプロイ形態のまとめ
-
-| タスク | デプロイ形態 | 説明 |
-| :--- | :--- | :--- |
-| 注文タイムアウトの取消 + 在庫復元 | **EventBridge `at()` による正確な取消（フラッシュセールのみ）+ cron スキャン + Lambda**（`order_expirer`） | ① フラッシュセールは `at(expires_at)` で注文ごとに取消し、在庫を即時復元します。② 抽選の当選分と ① の漏れは cron が毎分回収します。2 つのトリガーは同一 Lambda が `mode` で振り分けます |
-| 抽選開票 | **EventBridge `at()` による正確な開票 + cron スキャン + Lambda**（`lottery_drawer`） | ① `draw_at` で対象の抽選を 1 回だけトリガーし、即時開票します。② 上の行で失敗した抽選は cron が毎分回収します。2 つのトリガーは同一 Lambda が `mode` で振り分けます |
-
----
-
-## 7. CI/CD
-
-### 7.1 パイプライン一覧
-
-| Workflow | トリガー | 内容 |
-| :--- | :--- | :--- |
-| `frontend.yml` | push（develop / main）、PR；paths `frontend/**` | `pnpm lint` → build → S3 へ同期 → CloudFront のキャッシュを削除。ブランチで対象環境を切り替えます |
-| `api-ci.yml` | push（develop / main）、PR；paths `api/**` | `go build` / `vet` / `test` →（push develop のみ）ARM64 イメージをビルドして ECR ログインを検証。**push しない**（ECR に置くのはリリース版のみ） |
-| `api-cd.yml` | **タグ push（`v*`）のみ** | ビルド / テスト → タグ名（例 `v1.2.3`）でイメージを push → タスク定義の新しいリビジョンを登録 → ECS サービスを切り替え、安定するまで待機 |
-| `lambda-ci.yml` | push（develop / main）、PR；paths `lambdas/**` | 2 つの `build.sh`（内部で `go test` も実行）→ zip 成果物 |
-| `lambda-cd.yml` | **タグ push（`v*`）のみ** | ビルド / テスト → `update-function-code` → `publish-version` → エイリアス `live` を切り替え |
-| `terraform.yml` | **PR のみ**；paths `terraform/**` | `fmt -check` + matrix：`shared` / `data` / `auth` / `storage` / `lambda` / `compute` / `frontend` / `monitoring` に対して `init` / `validate` / `plan`（`-detailed-exitcode`。差分ありは失敗扱いにしません。`state` は backend 自体を作るモジュールのため対象外） |
-| `ci-notify.yml` | **`workflow_run`**（上の 6 本の完了イベント） | 通知の集約：失敗で Issue を自動作成（既に開いていればコメント追記）、復旧で自動クローズ。`SLACK_WEBHOOK_URL` を登録すると Slack にも送信（§7.5 参照） |
-
-### 7.2 ブランチと環境の対応関係
-
-| ブランチ / イベント | フロントエンド | API / Lambda | Terraform |
-| :--- | :--- | :--- | :--- |
-| PR | ビルド検証 | build / test のみ | plan（各モジュール） |
-| `develop` | development へデプロイ | デプロイしない（API はイメージ push のみ / Lambda はビルドのみ） | 実行しない |
-| `main` | production へデプロイ（**人の承認が必要**） | デプロイしない | 実行しない |
-| `v*` tag | — | **自動リリース（API + Lambda）** | — |
-
-> **リリースには独立した 2 つのゲートがあります**：workflow のトリガー条件（`on.push.tags: v*`）と、GitHub Environments のデプロイ許可リストです。`development` はブランチ `develop` と**タグ `v*`** の両方を許可します（CD はタグをトリガーにするため、タグを許可しないと環境ルールで拒否されます）。`production` は `main` のみを許可し、人の承認を追加します。リリースのパイプラインを増やすときは両方の許可が必要です。
-
-**インフラの apply は必ず人が実行します**：CI の役割は 2 つです。変更を先に見えるようにすること（plan）と、アプリケーション層を配ること（フロント / API / Lambda）。インフラの変更は、人が plan を確認してから実行します。
-
-### 7.3 権限設計（3 層）
-
-**① 長期キーを持たない（OIDC）**
-
-GitHub Actions には AWS アクセスキーを保存せず、OIDC で一時クレデンシャルを取得します。パイプラインごとに**独立したロール**を持ち（フロントは環境ごとに dev / prod の 2 つ）、権限は対象リソースまで限定します。
-
-| ロール | 権限範囲 |
-| :--- | :--- |
-| Lambda リリース | コード更新 / バージョン発行 / エイリアス切替。すべて対象の 2 関数とエイリアス `live` に限定 |
-| API リリース | ECR push（対象リポジトリのみ）+ `RegisterTaskDefinition` / `UpdateService` / `Describe*`（対象のサービスとタスク定義のみ）。インフラ変更の権限は含みません |
-| Terraform plan | 読み取り + state バケットの読み書き（書き込みと削除は `*.tflock` のみ）+ DB パスワードの Secret 1 件の読み取り |
-| フロントのリリース（dev / prod） | 環境ごとに 1 ロール：S3 同期（対象のバケットのみ）+ CloudFront のキャッシュ無効化（対象のディストリビューションのみ） |
-
-**② 環境ゲートと承認**
-
-GitHub Environments がリリース方針を担います。`development` は参照ブランチの制限のみ、`production` は追加で人の承認が必要です。結果として開発フローは完全に自動化され、本番リリースには確認が 1 段入ります。
-
-**③ トリガー側の防御**
-
-公開リポジトリでは、フォークからの PR は**その PR 側の workflow 定義**で実行されます。workflow を書き換えてクレデンシャルを窃取される余地があるため、**クレデンシャルを持つ job は同一リポジトリからの PR に限定**します（`github.event.pull_request.head.repo.full_name == github.repository`）。
-
-> 権限最小化（何ができるか）とトリガー制御（誰がどの条件で起動できるか）は同時に設計する必要があります。IAM を絞るだけでは不十分です。
-
-### 7.4 リリース方式
-
-**API（ECS）：タグを打てばリリース**
-
-`v1.2.3` のようなタグを push すると `api-cd.yml` が自動で実行します：イメージをビルドして push（タグ名 + `latest`）→ 現在のタスク定義をコピーしイメージのみ差し替え → 新しいリビジョンを登録 → サービスを切り替え → 安定するまで待機。
-
-- **バージョン番号はタグ名**。稼働中のバージョンはタスク定義のイメージタグで確認でき、SHA を控える必要はありません
-- **環境変数は引き続き Terraform が管理**：CI は現在のリビジョンをコピーするため、env / secrets / ロールは自動的に引き継がれ、repo に二重定義する必要がありません
-- **ロールバック**：`aws ecs update-service --task-definition flashbuy-api-dev:<旧リビジョン>`（秒単位）
-- **デプロイサーキットブレーカー**を有効化：新タスクがヘルスチェックを連続で失敗した場合、前のリビジョンへ自動で戻ります
-- 注意：Terraform で環境変数を変更した場合、次にタグを打つまで稼働中のサービスには反映されません（サービスの task definition は CI が切り替えるためです）
-
-**Lambda：同じタグで一緒にリリース**
-
-`lambda-cd.yml` が実行します：`build.sh`（テスト込み）→ `update-function-code` → `publish-version` → エイリアス `live` を新しいバージョンへ。
-
-- トリガー（EventBridge Scheduler / Rules）は**エイリアス `live`** を呼ぶため、ロールバックは `aws lambda update-alias --function-name <名前> --name live --function-version <旧バージョン>`（秒単位）です
-- バージョン番号は Lambda が採番します（発行番号）。どのタグに対応するかは Actions のログで確認します
-- コードは CI がデプロイし、設定（メモリ / VPC / 環境変数）は Terraform が管理します（`ignore_changes` で分離）
-
-**リリースタグの制約**：リリースのパイプラインは「タグが指すコミットが `main` 上にあるか」を検証します（`compare/main...<sha>` が `behind` / `identical` の場合のみ通過）。develop 上で未マージのコミットをリリースしてしまうことを防ぎます。
-
-### 7.5 失敗時の通知
-
-失敗通知は **`ci-notify.yml` が一元管理**します。`workflow_run` で全パイプラインの完了イベントを集約し、各パイプラインに通知処理を重複して書かないようにしています。
-
-- **失敗** → Issue を自動作成。同じ Issue が開いている間は**コメントを追記**（乱立を防ぐ）
-- **復旧** → その Issue を自動でクローズ
-- リポジトリの Secret に `SLACK_WEBHOOK_URL` を登録すると**Slack にも送信**（任意。未登録なら Issue のみ）
-- 注意：`workflows:` に書くのは各パイプラインの**表示名（`name:`）**です。改名時はここも直さないと、通知が静かに止まります
-
-> GitHub の標準通知（リポジトリの CI activity を購読）も引き続き有効ですが、これは**その実行をトリガーした人にしか届きません**。Issue / Slack はチーム向けの補完で、両者は併用して問題ありません。
-
----
-
-## 8. 監視とアラート
-
-### 8.1 選定：CloudWatch ネイティブ
-
-常駐の監視ミドルウェア（Datadog / Mackerel / Amazon Managed Grafana / 自前の Prometheus）は導入しません。PoC 規模では固定月額と追加コンポーネント（エージェント / sidecar / データソース設定）が必要になります。CloudWatch はメトリクス・ログ・アラーム・ダッシュボードを備えており、既存の IAM / ALB / ECS / RDS / Lambda と直接統合できます。
-
-> Mackerel（はてな製）は国内 SaaS、Datadog も国内でよく利用されます。どちらもホスト単位の課金で、ECS 内にエージェントを動かす必要があり、現規模では不要です。
-
-### 8.2 監視対象のメトリクス
-
-| 層 | メトリクス | しきい値 | 監視理由 |
-| :--- | :--- | :--- | :--- |
-| ALB | UnHealthyHostCount | ≥ 1（2 期間連続） | 単一タスク構成のため、1 台の異常が全ユーザーに影響します |
-| ALB | HTTPCode_Target_5XX_Count | ≥ 5 / 5 分 | アプリのバグ、DB 障害、デプロイ失敗が最初に現れる箇所です |
-| ALB | TargetResponseTime | > 2 秒（5 分平均） | フラッシュセールのピーク時に在庫ロック待ちで応答が劣化します |
-| ECS | CPUUtilization / MemoryUtilization | > 80%（2 期間連続） | タスクが上限に接近しています（OOM の前兆） |
-| RDS | CPUUtilization | > 80% | データベース過負荷 |
-| RDS | FreeStorageSpace | < 2 GB | 満杯になるとすべての書き込みが失敗します |
-| RDS | DatabaseConnections | > 60 | コネクション枯渇の前兆 |
-| ElastiCache | CPUUtilization | > 80% | 在庫減算の基盤です。劣化は購入速度に直接影響します |
-| Lambda | Errors / Throttles（開票・期限切れ取消） | ≥ 1 | 開票が動作していない場合、画面は静かなためアラームでしか検知できません |
-
-アラームは SNS トピックに集約し、メール購読は `alert_emails` 変数で指定します。
-
-### 8.3 ダッシュボードとログ保持
-
-- **ダッシュボード 1 枚**：ALB（リクエスト数 / 5xx / 応答時間 / 異常ターゲット）、ECS（CPU / メモリ）、RDS（CPU / 接続数）、Lambda（呼び出し / エラー）、ElastiCache —— 障害時に最初に確認する画面です
-- **ログ保持**：ECS 7 日、Lambda 14 日。Lambda のロググループはサービスが自動作成すると**保持期間なし（永続保存）**になるため、明示的に作成して保持期間を設定します
-
-### 8.4 今後：ビジネスメトリクス（EMF）
-
-インフラのメトリクスは「システムが健全か」しか示せず、「ビジネスが正常か」は示せません。フラッシュセールと抽選で本来見るべきは業務の数値です：
-
-- 購入成功 / 売り切れ拒否の件数（売り切れ率の異常 ⇒ 在庫プリヒートの問題、または異常トラフィック）
-- 応募数・当選数・落選数（抽選の公平性を検証する材料）
-- 注文タイムアウト取消数、在庫復元の失敗数
-- Redis から DB へのフォールバック回数（`cache.Remember` の警告）
-
-**EMF（Embedded Metric Format）** を使うと、構造化ログから直接メトリクスを生成できます。追加の API 呼び出しも追加費用も不要で、§6 の Lambda / ECS のログと直接つながります。
-
----
-
-## 9. ライセンス
+## License
 
 [MIT License](LICENSE)

@@ -207,10 +207,10 @@ func (h *AdminController) CreateLottery(c *gin.Context) {
 		logger.Warn("抽選一覧キャッシュの削除に失敗しました", zap.Error(err))
 	}
 
-	// draw_at 時刻のワンタイム開票ScheduleをEventBridgeに登録する
+	// draw_at 時刻のワンタイム抽選 Schedule を EventBridge に登録する
 	// （設定が空のローカル環境ではスキップされる。登録失敗しても商品作成は成功扱いとし、ログのみ残す）
 	if err := scheduler.RegisterDrawSchedule(item.ID, item.DrawAt); err != nil {
-		logger.Warn("開票スケジュールの登録に失敗しました",
+		logger.Warn("抽選スケジュールの登録に失敗しました",
 			zap.String("lotteryId", item.ID), zap.Error(err))
 	}
 

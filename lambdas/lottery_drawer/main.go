@@ -1,28 +1,28 @@
-// LotteryDrawer — 抽選開票を行う Lambda 関数。
+// LotteryDrawer — 抽選を実行して結果を確定する Lambda 関数。
 //
 // 2種類のトリガーを受け取り、イベントの mode で処理を振り分ける
 // （Lambda は1関数1エントリのため、1つのハンドラで両方を扱う）:
 //
-//  1. mode="draw" — EventBridge Scheduler の at() による「個別開票」
+//  1. mode="draw" — EventBridge Scheduler の at() による「個別抽選」
 //     Admin API が抽選作成時に draw_at 時刻のワンタイム Schedule を登録し、
-//     その時刻にこの Lambda を該当の抽選1件だけを対象に呼び出す。遅延なく開票される。
+//     その時刻に、対象を該当の抽選1件に絞ってこの Lambda を呼び出す。遅延なく抽選が実行される。
 //
 //  2. mode="scan" — EventBridge の cron による「一括スキャン（安全網）」
 //     Schedule の登録漏れ / Lambda の失敗などで取りこぼした抽選を、
-//     定期的なテーブルスキャンで検出して開票する。
+//     定期的なテーブルスキャンで検出して抽選する。
 //
 // なぜ2層構成か:
 //
 //	遅延実行（at() など）は「登録」と「配信」が別の仕組みであり、
 //	登録失敗・配信失敗・処理失敗のいずれかで取りこぼしが起こりうる。
 //	実際に IAM 権限の ARN 誤りで Schedule 登録が全件失敗し、
-//	開票が一切行われない事故が発生している（その際、エラーは warn ログのみで
-//	管理画面は成功を返すため、ユーザーは「開票待ち」のまま気づけなかった）。
-//	取りこぼした抽選は永久に開票されないため、必ずスキャンを安全網として重ねる。
+//	抽選が一切行われない事故が発生している（その際、エラーは warn ログのみで
+//	管理画面は成功を返すため、ユーザーは「結果発表待ち」のまま気づけなかった）。
+//	取りこぼした抽選は永久に実行されないため、必ずスキャンを安全網として重ねる。
 //
 // 冪等性:
 //
-//	開票は「WAITING を全て LOST にしてから当選者だけ UNPAID に戻す」2段階で行う。
+//	抽選は「WAITING を全て LOST にしてから当選者だけ UNPAID に戻す」2段階で行う。
 //	対象抽選に WAITING が残っていなければ何もせず正常終了するため、
 //	二重起動（再試行・スキャンとの重複）しても結果は変わらない。
 //	並行実行については drawLottery 内の FOR UPDATE で直列化する（後述）。
@@ -61,16 +61,16 @@ type Event struct {
 // 当選者の支払期限（当選日から3日）
 const payDeadlineDuration = 72 * time.Hour
 
-// scanBatchSize は mode="scan" の1回あたりで開票する抽選の最大件数。
-// 開票は1抽選あたり「全応募のUPDATE + 当選者のUPDATE」と重いため、
+// scanBatchSize は mode="scan" の1回あたりで処理する抽選の最大件数。
+// 1件あたりの処理は「全応募のUPDATE + 当選者のUPDATE」と重いため、
 // OrderExpirer の scanBatchSize（100件）より少ない値にしている。
 const scanBatchSize = 10
 
-// mode="scan" 用: 開票時刻を過ぎても WAITING 応募が残っている抽選を古い順に拾う。
-// 通常は0件（at() が正常に開票済み）で、Schedule 登録漏れ等があったときだけ引っ掛かる。
+// mode="scan" 用: 抽選時刻を過ぎても WAITING 応募が残っている抽選を古い順に拾う。
+// 通常は0件（at() が正常に抽選済み）で、Schedule 登録漏れ等があったときだけ引っ掛かる。
 //
 // EXISTS で「WAITING が残っているか」を先に判定しているため、
-// 応募ゼロの抽選（開票しても何も起きない）を無駄に拾わない。
+// 応募ゼロの抽選（実行しても何も起きない）を無駄に拾わない。
 const drawScanSQLText = `
 	SELECT id FROM lottery_items
 	WHERE draw_at <= now()
@@ -116,7 +116,7 @@ func handler(ctx context.Context, event Event) error {
 	}
 }
 
-// handleDraw は at() で指定された1件の抽選だけを開票する（本線）
+// handleDraw は at() で指定された1件の抽選だけを実行する（本線）
 func handleDraw(ctx context.Context, db *sqlx.DB, event Event) error {
 	if event.LotteryID == "" {
 		return fmt.Errorf("mode=draw では lotteryId が必須です")
@@ -135,19 +135,19 @@ func handleDraw(ctx context.Context, db *sqlx.DB, event Event) error {
 
 	// SNS への結果イベント発行（ARN 未設定ならスキップ）
 	if err := publishResult(ctx, event.LotteryID, appliedCount, winnerCount); err != nil {
-		// 開票自体は完了しているため、SNS 失敗でエラーにはしない（ログのみ）
-		slog.Warn("SNS発行に失敗しました（開票結果はDBに反映済み）",
+		// 抽選自体は完了しているため、SNS 失敗でエラーにはしない（ログのみ）
+		slog.Warn("SNS発行に失敗しました（抽選結果はDBに反映済み）",
 			"lotteryId", event.LotteryID,
 			"error", err)
 	}
 	return nil
 }
 
-// handleScan は開票時刻を過ぎても未開票の抽選をスキャンして開票する（安全網）
+// handleScan は抽選時刻を過ぎても結果が未確定の抽選を探し、まとめて実行する（安全網）
 func handleScan(ctx context.Context, db *sqlx.DB) error {
 	var lotteryIDs []string
 	if err := db.Select(&lotteryIDs, drawScanSQL(), scanBatchSize); err != nil {
-		return fmt.Errorf("未開票の抽選の取得に失敗しました: %w", err)
+		return fmt.Errorf("結果が未確定の抽選の取得に失敗しました: %w", err)
 	}
 
 	drawn, failed := 0, 0
@@ -156,21 +156,21 @@ func handleScan(ctx context.Context, db *sqlx.DB) error {
 		if err != nil {
 			// 1件失敗しても残りは続行する。失敗した抽選は WAITING のままなので
 			// 次回のスキャンで自動的に再挑戦される
-			slog.Warn("開票に失敗しました（次回スキャンで再試行されます）",
+			slog.Warn("抽選に失敗しました（次回スキャンで再試行されます）",
 				"lotteryId", id, "error", err)
 			failed++
 			continue
 		}
-		slog.Info("スキャンによる開票が完了しました",
+		slog.Info("スキャンで抽選を実行しました",
 			"lotteryId", id, "appliedCount", appliedCount, "winnerCount", winnerCount)
 		drawn++
 	}
 
-	slog.Info("スキャンによる開票処理が完了しました", "drawn", drawn, "failed", failed)
+	slog.Info("スキャン処理が完了しました", "drawn", drawn, "failed", failed)
 	return nil
 }
 
-// drawLottery は抽選の本体。単一トランザクションで開票結果を書き込む。
+// drawLottery は抽選の本体。単一トランザクションで抽選結果を書き込む。
 // 返り値: 当選者数, 応募者数
 func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, error) {
 	tx, err := db.Beginx()
@@ -181,14 +181,14 @@ func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, 
 
 	// 当選枠数を取得（応募者より多い場合は全員当選になるため、枠数をそのまま使う）
 	//
-	// FOR UPDATE で抽選商品の行をロックする。開票は「WAITING を読む→抽選→書く」の
+	// FOR UPDATE で抽選商品の行をロックする。処理は「WAITING を読む→抽選→書く」の
 	// 3段階でできており、このままでは並行実行時に結果が壊れる:
 	//   A と B が同じ WAITING 一覧を読み、A が全員 LOST にして当選者を UNPAID にしたあと、
 	//   B の「当選者を UNPAID にする UPDATE」には status 条件が無いため、
 	//   A が確定させた LOST（落選）まで UNPAID に書き戻してしまう。
-	//   並行は at() による本線開票と cron スキャンが重なったときに起こりうる。
-	// ロックを取ることで同じ抽選の開票は直列化され、後からロックを取れた侧は
-	// WAITING が残っていない（＝開票済み）ことを検出して何もせず正常終了する（冪等）。
+	//   並行実行は、at() による本線の抽選と cron スキャンが重なったときに起こりうる。
+	// ロックを取ることで同じ抽選の処理は直列化され、後からロックを取れた側は
+	// WAITING が残っていない（＝抽選済み）ことを検出して何もせず正常終了する（冪等）。
 	var winnerCount int
 	if err := tx.Get(&winnerCount,
 		`SELECT winner_count FROM lottery_items WHERE id = $1 FOR UPDATE`, lotteryID); err != nil {
@@ -204,8 +204,8 @@ func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, 
 	}
 
 	if len(applicantIDs) == 0 {
-		// 応募なし、または既に開票済み（WAITING が残っていない）。冪等として正常終了する
-		slog.Info("対象の WAITING 応募がありません（応募なし or 開票済み）", "lotteryId", lotteryID)
+		// 応募なし、または既に抽選済み（WAITING が残っていない）。冪等として正常終了する
+		slog.Info("対象の WAITING 応募がありません（応募なし or 抽選済み）", "lotteryId", lotteryID)
 		return 0, 0, nil
 	}
 
@@ -245,7 +245,7 @@ func drawLottery(ctx context.Context, db *sqlx.DB, lotteryID string) (int, int, 
 	// 当選者ごとに「支払期限到来で取消」のワンタイムScheduleを登録する。
 	// 抽選は枠数制で在庫を持たないため取消はステータス変更だけで済むが、
 	// 期限切れを放置すると当選枠が宙吊りになる（繰上げ当選等の判断に支障が出る）。
-	// 登録失敗は開票結果そのものを巻き込まないよう、ログのみ残して正常終了とする
+	// 登録失敗は抽選結果そのものを巻き込まないよう、ログのみ残して正常終了とする
 	// （OrderExpirer の cron スキャンが後から回収する）。
 	registerPayDeadlineSchedules(ctx, winnerIDs, payDeadline)
 
@@ -259,7 +259,7 @@ func registerPayDeadlineSchedules(ctx context.Context, winnerIDs []string, payDe
 		return
 	}
 	if err := registerSchedules(ctx, winnerIDs, payDeadline); err != nil {
-		// 開票は完了しているため、Schedule登録の失敗で err にはしない
+		// 抽選は完了しているため、Schedule登録の失敗で err にはしない
 		slog.Warn("支払期限Scheduleの登録に失敗しました（cronスキャンで回収されます）",
 			"winnerCount", len(winnerIDs), "error", err)
 	}
@@ -281,7 +281,7 @@ func connectDB() (*sqlx.DB, error) {
 
 	// connect_timeout: RDS が応答しない場合にTCP接続の確立で無限に待たされるのを防ぐ。
 	// （Lambda のタイムアウト60秒で強制終了されると、Schedule は実行済みとして削除されるため
-	//   その抽選の開票機会が失われる。早めに失敗させて再試行に回す方が安全）
+	//   その抽選の実行機会が失われる。早めに失敗させて再試行に回す方が安全）
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=5",
 		host, port, user, password, name, sslmode)
 
@@ -290,14 +290,14 @@ func connectDB() (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	// Lambda は 1 invocation = 1並行で、開票処理は1トランザクションの直列実行のため接続は1本で十分。
+	// Lambda は 1 invocation = 1並行で、抽選処理は1トランザクションの直列実行のため接続は1本で十分。
 	// 接続は sync.Once（getDB）でコンテナ起動時に1回だけ作り、ウォームスタートで使い回す。
 	// handler は Close しない（コンテナ終了時に片付く）ため、それ以上の設定は不要
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
 
-// publishResult は SNS トピック lottery.drawn に開票結果イベントを発行する
+// publishResult は SNS トピック lottery.drawn に抽選結果イベントを発行する
 func publishResult(ctx context.Context, lotteryID string, appliedCount, winnerCount int) error {
 	topicArn := os.Getenv("SNS_TOPIC_ARN")
 	if topicArn == "" {
@@ -322,7 +322,7 @@ func publishResult(ctx context.Context, lotteryID string, appliedCount, winnerCo
 	// このLambdaはプライベートサブネット（NATなし）で動くため、
 	// SNSへの通信が届かないとSYNが黙って捨てられ、SDKの再試行で
 	// Lambdaのタイムアウト近くまで止まってしまう（実測51秒）。
-	// 開票結果はDBに反映済みなので、SNSは3秒で諦めて警告ログだけ残す。
+	// 抽選結果はDBに反映済みなので、SNSは3秒で諦めて警告ログだけ残す。
 	publishCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 

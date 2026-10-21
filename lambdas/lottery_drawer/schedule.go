@@ -29,12 +29,12 @@ const scheduleCallTimeout = 3 * time.Second
 //	scheduler.*.amazonaws.com を呼ぶとSYNパケットが破棄され、応答を待ち続けて
 //	Lambdaタイムアウト（60秒）までハングします。
 //	過去に Secrets Manager で全く同じ事故が発生しています（AGENTS.md 参照）。
-//	ハングすると開票自体が失敗扱いになり、SNS通知も飛ばず、再試行も発生します。
+//	ハングすると抽選自体が失敗扱いになり、SNS通知も飛ばず、再試行も発生します。
 //
 // 再有効化する場合の前提（いずれか必須）:
 //   - private subnet に NAT Gateway を追加（約$32/月）
 //   - EventBridge Scheduler 用の VPC Endpoint を追加
-//   - もしくは開票LambdaをVPC外に出し、RDSへは別経路で接続する
+//   - もしくは抽選LambdaをVPC外に出し、RDSへは別経路で接続する
 //
 // 現在の代替:
 //
@@ -79,13 +79,13 @@ func registerSchedules(ctx context.Context, orderIDs []string, payDeadline time.
 
 		// 1件ごとに短いタイムアウトを区切る。
 		// Lambda全体のctxをそのまま渡すと、1回のネットワーク遅延が
-		// 関数まるごとの残り時間を食い潰してしまう（開票自体は完了済みなので、
+		// 関数まるごとの残り時間を食い潰してしまう（抽選自体は完了済みなので、
 		// 登録は「できる範囲でやる」に留めて早めに諦めるのが安全）。
 		callCtx, cancel := context.WithTimeout(ctx, scheduleCallTimeout)
 		_, err := client.CreateSchedule(callCtx, &scheduler.CreateScheduleInput{
 			Name:               aws.String(name),
 			GroupName:          aws.String(groupName),
-			Description:        aws.String("当選後の支払期限切れ取消（開票時に自動登録。実行後に自動削除）"),
+			Description:        aws.String("当選後の支払期限切れ取消（抽選時に自動登録。実行後に自動削除）"),
 			ScheduleExpression: aws.String(fmt.Sprintf("at(%s)", at)),
 			FlexibleTimeWindow: &types.FlexibleTimeWindow{
 				Mode: types.FlexibleTimeWindowModeOff,

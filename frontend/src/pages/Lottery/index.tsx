@@ -208,7 +208,7 @@ export default function LotteryDetail() {
                 <div className="font-mono text-[10px] text-amber-400 tracking-[1.5px] uppercase mb-3 font-semibold">
                   ステータス: 抽選集計中
                 </div>
-                {/* 開票時刻（drawAt）までのカウントダウン。0になると status が ENDED に遷移する */}
+                {/* 抽選時刻（drawAt）までのカウントダウン。0になると status が ENDED に遷移する */}
                 <Countdown targetDate={item.drawAt} label="" showDays expiredText="当落発表" />
               </>
             : !isActive ?
@@ -262,7 +262,7 @@ export default function LotteryDetail() {
               </div>
               <div className="font-mono text-[10px] text-muted mt-1 tracking-[0.5px]">
                 {status === 'DRAWING' ?
-                  '現在抽選の集計を行っております。当落発表までお待ちください。'
+                  '現在、抽選の集計を行っております。当落発表までお待ちください。'
                 : 'この抽選イベントの応募受付は終了しました。'}
               </div>
             </div>

@@ -1,4 +1,4 @@
-# FlashBuy データ構造・バックエンド設計
+# FlashBuy データ設計（型・テーブル・キャッシュ・クエリ）
 
 > 作成者: 王迎新
 > 更新: 2026-09-03
@@ -83,7 +83,7 @@ export interface FlashOrderItem {
 
 ```typescript
 export type LotteryOrderStatus = 'WAITING' | 'LOST' | 'UNPAID' | 'PAID' | 'CANCELLED'
-// WAITING=抽選待ち, LOST=落選, UNPAID=当選（未払い）, PAID=支払済, CANCELLED=取消
+// WAITING=抽選待ち, LOST=落選, UNPAID=当選（未払い）, PAID=支払済, CANCELLED=キャンセル
 
 export interface LotteryOrderItem {
   id: string
@@ -93,7 +93,7 @@ export interface LotteryOrderItem {
   imageUrl?: string
   appliedAt: string
   applyDeadline: string // 締切表示用（JOIN で取る）
-  drawAt: string // 開票待ちの残り時間表示用（JOIN で取る）
+  drawAt: string // 結果発表待ちの残り時間表示用（JOIN で取る）
   status: LotteryOrderStatus
   payDeadline?: string // 当選時の支払期限（72 時間）
   price?: number // 応募費
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS flash_items (
   image_s3_key VARCHAR(512),          -- NULL 可。画像のS3キーだけ持つ
   detail_json TEXT,                   -- NULL 可。仕様・注意事項のJSON（§3-2）
   price INTEGER NOT NULL CHECK (price >= 0),
-  stock INTEGER NOT NULL DEFAULT 0,   -- Redis が正本。DB は落账用
+  stock INTEGER NOT NULL DEFAULT 0,   -- Redis が正本。DB は永続記録用
   total_stock INTEGER NOT NULL,       -- 最初の総在庫。作った後は変わらない
   starts_at TIMESTAMPTZ NOT NULL,
   ends_at TIMESTAMPTZ NOT NULL,
@@ -242,8 +242,8 @@ WHERE status = 'UNPAID';
 -- flash_id にインデックスなし（flash_id で注文を引くクエリがない。商品削除もしない）
 ```
 
-- 下单フロー（`flash_buy.go`）: Redis Lua で在庫ロック → 価格取得 → トランザクション（`INSERT UNPAID` + `stock - 1`）→ `at(expires_at)`（`expire-{orderId}`）を登録。
-- `expires_at` と Schedule 時刻は同じ変数を使う（ずれると期限前判定で取消が飛ぶ）。
+- 注文フロー（`flash_buy.go`）: Redis Lua で在庫ロック → 価格取得 → トランザクション（`INSERT UNPAID` + `stock - 1`）→ `at(expires_at)`（`expire-{orderId}`）を登録。
+- `expires_at` と Schedule 時刻は同じ変数を使う（ずれると期限前判定でキャンセルが飛ぶ）。
 
 ### 2-5. `lottery_orders` テーブル（応募）
 
@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS lottery_orders (
   UNIQUE (user_id, lottery_id)        -- 二重応募防止。user_id 先頭のため履歴検索にも使う
 );
 
--- 開票処理用（WHERE lottery_id = $1 AND status = 'WAITING' の全件走査 + FK）
+-- 抽選処理用（WHERE lottery_id = $1 AND status = 'WAITING' の全件走査 + FK）
 -- UNIQUE(user_id, lottery_id) は lottery_id が2番目のため単独で必要
 CREATE INDEX IF NOT EXISTS idx_lottery_orders_lottery ON lottery_orders (lottery_id);
 -- 期限切れ監視用。UNPAID だけの部分インデックス
@@ -274,7 +274,7 @@ WHERE status = 'UNPAID';
 ```
 
 - 応募フロー（`lottery_apply.go`）: 期間チェック → トランザクション（`INSERT ... ON CONFLICT DO NOTHING` + `apply_count + 1`）。重複は `10002`。
-- 開票（Lambda）: `WHERE lottery_id=$1 AND status='WAITING'` を全部 `LOST` にして、当選分だけ `UNPAID`（+ `pay_deadline` 72 時間）に戻す。超長い `IN` を作らない。
+- 抽選（Lambda）: `WHERE lottery_id=$1 AND status='WAITING'` を全部 `LOST` にして、当選分だけ `UNPAID`（+ `pay_deadline` 72 時間）に戻す。超長い `IN` を作らない。
 - 支払い（`payment_controller.go`）: 60% 成功 / 40% 失敗のモック。成功時は `UNPAID → PAID`（期限条件付き）。期限切れは `10003`。
 
 ---
@@ -288,7 +288,7 @@ WHERE status = 'UNPAID';
 | `flashbuy-images-{env}` | 商品画像だけ | 公開読み取り（GetObject のみ）+ CORS |
 
 - 理由: 詳細は数 KB の JSON で、詳細画面のたび必ず読む。DB 列（`detail_json`）なら 1 SQL で返せる。S3 に置くと DB/S3 二重書込みになる。
-- CORS の `allowed_origins` に実際の access 域名を入れる（IP で開く時は `*` に緩める。生産は CloudFront に締める）。
+- CORS の `allowed_origins` に実際のアクセスドメインを入れる（IP で開くときは `*` に緩める。本番は CloudFront に限定する）。
 
 ### 3-2. `detail_json`（`models/item_detail.go`）
 
@@ -375,8 +375,8 @@ if tonumber(stock) <= 0 then return -1 end
 return redis.call('DECR', KEYS[1])
 ```
 
-- `GET → 判定 → DECR` を分けると競争になる。Lua 1 本は Redis 単線で原子になる。
-- Redis が正本、DB は落账（下单で `-1`、取消で戻す）。取消は `INCR`（キーがなければ何もしない）。
+- `GET → 判定 → DECR` を分けると競合する。Lua スクリプト 1 本なら、Redis の単一スレッド上で原子に実行される。
+- Redis が正本で、DB は永続記録（注文で `-1`、キャンセルで戻す）。キャンセルは `INCR`（キーがなければ何もしない）。
 
 ### 4-4. 主なクエリ
 
@@ -385,11 +385,11 @@ return redis.call('DECR', KEYS[1])
 | フラッシュ一覧 | `SELECT * FROM flash_items WHERE ends_at > now() ORDER BY view_count DESC` |
 | 抽選一覧 | `SELECT * FROM lottery_items WHERE draw_at > now() ORDER BY view_count DESC` |
 | Top10 | 上に `LIMIT 10`（`home:top10`） |
-| 管理一覧 | `SELECT * FROM xx_items ORDER BY created_at DESC`（終了済み含む、キャッシュなし） |
+| 管理一覧 | `SELECT * FROM xx_items ORDER BY created_at DESC`（終了済みを含む、キャッシュなし） |
 | マイページ・注文 | `flash_orders JOIN flash_items ... WHERE user_id=$1 ORDER BY created_at DESC` |
 | マイページ・応募 | `lottery_orders JOIN lottery_items ... WHERE user_id=$1 ORDER BY applied_at DESC`（`apply_deadline/draw_at` も JOIN で取る） |
-| 検索 | `GET /api/v1/search?query=xx&timeRange=6m\|1y\|3y`。`name/description/category ILIKE '%語%'` + `starts_at > now() - interval`。前方案一致のため索引なし |
-| 期限切れ掃引 | `WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（部分索引に当たる）。取消 SQL は必ず `status='UNPAID'` を外側にも付ける（支払い競争で PAID を消さない） |
+| 検索 | `GET /api/v1/search?query=xx&timeRange=6m\|1y\|3y`。`name/description/category ILIKE '%語%'` + `starts_at > now() - interval`。部分一致のため索引なし |
+| 期限切れ掃引 | `WHERE status='UNPAID' AND expires_at < now() LIMIT 100`（部分索引に当たる）。キャンセル SQL は必ず `status='UNPAID'` を外側にも付ける（支払いとの競合で PAID を消さない） |
 
 ### 4-5. 認証フロー
 

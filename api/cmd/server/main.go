@@ -62,8 +62,8 @@ func main() {
 	}
 	defer auth.CloseJWKS()
 
-	// 7. EventBridge Scheduler クライアントの初期化（抽選開票のワンタイム登録用。
-	//     設定が空の場合はスキップされ、開票スケジュールの登録は行われない）
+	// 7. EventBridge Scheduler クライアントの初期化（抽選結果の確定をワンタイムで登録するため。
+	//     設定が空の場合はスキップされ、抽選スケジュールの登録は行われない）
 	scheduler.InitScheduler(&cfg.Scheduler)
 
 	// 8. S3クライアントの初期化（画像アップロードの署名付きURL発行用。

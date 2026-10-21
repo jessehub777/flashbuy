@@ -1,4 +1,4 @@
-// Package scheduler は EventBridge Scheduler への抽選開票スケジュール登録を提供します。
+// Package scheduler は EventBridge Scheduler への抽選スケジュール登録を提供します。
 // Admin API が抽選商品を作成する際、draw_at 時刻のワンタイムScheduleを登録します。
 package scheduler
 
@@ -32,7 +32,7 @@ func InitScheduler(c *config.SchedulerConfig) {
 
 	cfg = c
 	if c == nil || c.ScheduleGroupName == "" {
-		logger.Info("scheduler設定が空のため、開票スケジュール登録をスキップします")
+		logger.Info("Scheduler 設定が空のため、抽選スケジュールの登録をスキップします")
 		return
 	}
 
@@ -45,7 +45,7 @@ func InitScheduler(c *config.SchedulerConfig) {
 	client = scheduler.NewFromConfig(awsCfg)
 }
 
-// RegisterDrawSchedule は抽選商品の開票用ワンタイムScheduleを登録します。
+// RegisterDrawSchedule は抽選時刻に実行するワンタイム Schedule を登録します。
 // - Schedule名は lotteryID から一意に決まる（同じ抽選の再登録は上書きになる）
 // - draw_at 到達時に1回だけLambdaを呼び出し、実行後にScheduleを自動削除する
 //
@@ -71,7 +71,7 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 	_, err := client.CreateSchedule(context.TODO(), &scheduler.CreateScheduleInput{
 		Name:               &name,
 		GroupName:          &groupName,
-		Description:        ptr("抽選開票（作成時に自動登録。実行後に自動削除）"),
+		Description:        ptr("抽選結果の確定（作成時に自動登録。実行後に自動削除）"),
 		ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
 		// 指定時刻ちょうどに実行する（柔軟ウィンドウなし）
 		FlexibleTimeWindow: &types.FlexibleTimeWindow{
@@ -90,7 +90,7 @@ func RegisterDrawSchedule(lotteryID string, drawAt time.Time) error {
 		_, err = client.UpdateSchedule(context.TODO(), &scheduler.UpdateScheduleInput{
 			Name:               &name,
 			GroupName:          &groupName,
-			Description:        ptr("抽選開票（作成時に自動登録。実行後に自動削除）"),
+			Description:        ptr("抽選結果の確定（作成時に自動登録。実行後に自動削除）"),
 			ScheduleExpression: ptr(fmt.Sprintf("at(%s)", at)),
 			FlexibleTimeWindow: &types.FlexibleTimeWindow{
 				Mode: types.FlexibleTimeWindowModeOff,

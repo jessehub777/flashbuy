@@ -42,7 +42,7 @@ type LotteryOrderDTO struct {
 	ImageS3Key    *string    `db:"image_s3_key" json:"imageS3Key,omitempty"`
 	AppliedAt     time.Time  `db:"applied_at" json:"appliedAt"`
 	ApplyDeadline time.Time  `db:"apply_deadline" json:"applyDeadline"` // 抽選の応募締切（締切までの表示用）
-	DrawAt        time.Time  `db:"draw_at" json:"drawAt"`               // 抽選実施日時（開票待ちの残り時間表示用）
+	DrawAt        time.Time  `db:"draw_at" json:"drawAt"`               // 抽選実施日時（結果発表待ちの残り時間表示用）
 	Status        string     `db:"status" json:"status"`                // 'WAITING','UNPAID','LOST','PAID','CANCELLED'
 	PayDeadline   *time.Time `db:"pay_deadline" json:"payDeadline,omitempty"`
 	Price         int        `db:"price" json:"price"`              // 応募費（0 = 応募無料）

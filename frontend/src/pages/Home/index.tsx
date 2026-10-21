@@ -1,4 +1,4 @@
-// ホームページ — ヒーロー・人気Top10フラッシュセール・人気Top10抽選（平铺グリッド表示）
+// ホームページ — ヒーロー・人気Top10フラッシュセール・人気Top10抽選（グリッド表示）
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
@@ -117,7 +117,7 @@ export default function Home() {
         )}
       </section>
 
-      {/* ===== フラッシュセール セクション（人気Top10・平铺グリッド表示） ===== */}
+      {/* ===== フラッシュセール セクション（人気Top10・グリッド表示） ===== */}
       <section className="px-10 pt-10 pb-12 max-sm:px-5 max-sm:pt-8 max-sm:pb-9">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-baseline gap-[14px]">
@@ -133,7 +133,7 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* 平铺（グリッド）表示エリア（1080P / 2K 画面では 5 列表示） */}
+        {/* グリッド表示エリア（1080P / 2K 画面では 5 列表示） */}
         {isLoading ?
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -150,7 +150,7 @@ export default function Home() {
         }
       </section>
 
-      {/* ===== 抽選 セクション（人気Top10・平铺グリッド表示） ===== */}
+      {/* ===== 抽選 セクション（人気Top10・グリッド表示） ===== */}
       <section className="px-10 pt-4 pb-16 max-sm:px-5 max-sm:pb-12">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-baseline gap-[14px]">
@@ -166,7 +166,7 @@ export default function Home() {
           </Link>
         </div>
 
-        {/* 平铺（グリッド）表示エリア（1080P / 2K 画面では 5 列表示） */}
+        {/* グリッド表示エリア（1080P / 2K 画面では 5 列表示） */}
         {isLoading ?
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
             {Array.from({ length: 5 }).map((_, i) => (

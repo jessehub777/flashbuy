@@ -389,17 +389,17 @@ function PaymentDeadline({ deadline, onExpired }: { deadline: string; onExpired?
   )
 }
 
-// 抽選応募（WAITING）の「開票までの残り時間」を表示する。
+// 抽選応募（WAITING）の「結果発表までの残り時間」を表示する。
 // 残り時間が0になったら onReached を呼び、親で応募一覧を再取得させる
-// （開票が済んでいれば UNPAID / LOST に変わり、このコンポーネントは自動で消える）。
-// 開票は EventBridge Scheduler が draw_at ちょうどに1回だけ実行するため、
+// （結果の発表が済んでいれば UNPAID / LOST に変わり、このコンポーネントは自動で消える）。
+// 抽選は EventBridge Scheduler が draw_at ちょうどに1回だけ実行するため、
 // 到着後の再取得は1回で足りる。もし再取得後も WAITING のままなら
-// 「開票待ち」を表示し、次の状態反映はユーザーの再訪問・手動更新に委ねる。
+// 「結果発表待ち」を表示し、次の状態反映はユーザーの再訪問・手動更新に委ねる。
 function LotteryDrawCountdown({ drawAt, onReached }: { drawAt: string; onReached?: () => void }) {
   const { days, hours, minutes, seconds, isExpired } = useCountdown(drawAt)
   const reachedNotified = useRef(false)
 
-  // 開票時刻に達したら（初回表示時点で既に過ぎている場合も含め）即座に通知する
+  // 抽選時刻に達したら（初回表示時点で既に過ぎている場合も含め）即座に通知する
   useEffect(() => {
     if (isExpired && !reachedNotified.current) {
       reachedNotified.current = true
@@ -410,7 +410,7 @@ function LotteryDrawCountdown({ drawAt, onReached }: { drawAt: string; onReached
   if (isExpired) {
     return (
       <div className="font-mono text-[11px] text-lottery mt-1 tracking-[0.5px] font-semibold animate-pulse">
-        抽選予定時刻を過ぎました — 開票待ち
+        抽選予定時刻を過ぎました — 結果発表待ち
       </div>
     )
   }

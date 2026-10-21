@@ -237,7 +237,7 @@ export function LotteryTicket({ item, applied = false }: LotteryTicketProps) {
             : isActive ?
               `応募締切まで ${deadlineLabel}`
             : item.status === 'DRAWING' ?
-              '現在抽選の集計を行っています'
+              '現在、抽選の集計を行っています'
             : '応募受付は終了しました'}
           </div>
         </div>

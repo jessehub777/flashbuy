@@ -18,7 +18,7 @@ type Config struct {
 	Scheduler SchedulerConfig `mapstructure:"scheduler"`
 }
 
-// SchedulerConfig は EventBridge Scheduler（抽選開票・注文期限切れのワンタイム登録）の設定です。
+// SchedulerConfig は EventBridge Scheduler（抽選結果の確定・注文期限切れのワンタイム登録）の設定です。
 // terraform/lambda の output 値を config ファイルに転記する。
 // 未設定の場合はスケジュール登録をスキップする（ローカル環境）。
 type SchedulerConfig struct {

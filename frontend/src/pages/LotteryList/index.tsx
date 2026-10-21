@@ -1,4 +1,4 @@
-// 抽選一覧ページ — /lottery ルート（平铺グリッド表示・カテゴリ絞り込み・人気順ソート機能）
+// 抽選一覧ページ — /lottery ルート（グリッド表示・カテゴリ絞り込み・人気順ソート機能）
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -81,7 +81,7 @@ export default function LotteryList() {
           抽選一覧
         </h1>
         <p className="text-muted text-[14px] max-w-[520px]">
-          公平な自動抽選。応募締切まで無料または定額で応募可能。抽選結果はマイページで確認できます。
+          公平な自動抽選。応募は締切まで無料です。抽選結果はマイページで確認できます。
         </p>
       </section>
 
@@ -149,7 +149,7 @@ export default function LotteryList() {
         </div>
       </div>
 
-      {/* 商品平铺（グリッド）表示エリア */}
+      {/* 商品グリッド表示エリア */}
       <div className="px-10 pb-12 max-sm:px-5">
         <div className="flex items-baseline gap-[14px] mb-6">
           <h2 className="font-oswald font-semibold text-[20px] tracking-[0.5px] text-lottery">

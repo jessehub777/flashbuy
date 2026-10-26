@@ -111,7 +111,9 @@ flowchart TB
   IGW --- PUB2
 ```
 
-- ALB 的安全组只放行 CloudFront 的托管前缀列表；ECS 只接受来自 ALB 的流量；RDS 与 Redis 接受来自 VPC 网段的连接，并另加管理员 IP 白名单。
+- ALB 的安全组只放行 CloudFront 的托管前缀列表；
+- ECS 只接受来自 ALB 的流量；
+- RDS 位于 public subnet 并开启公网访问，来源限定为 VPC 网段和管理员 IP。这样 `spinup.sh` 能从本地导入种子数据，开发时也能直连调试，不必为此增加 NAT 或 VPN的不必要大开支。风险与对策见 [2.7](#27-选型与取舍)
 - **无 NAT Gateway、无 VPC Endpoint**，以控制固定成本（NAT Gateway 在东京区域约 $45/月）。对应的设计：
   - Lambda 位于 private subnet，只访问 VPC 内的 RDS 与 Redis，DB 密码通过环境变量传入
   - ECS 需要调用 Scheduler、Cognito、S3 等 AWS API，因此置于 public subnet 并分配公网 IP
@@ -196,11 +198,23 @@ CloudWatch 已覆盖指标、日志、告警与看板，并与各服务直接集
 
 | 议题 | 选择 | 替代方案 | 理由 |
 |---|---|---|---|
+| RDS 的网络位置 | public subnet + 公网访问，安全组仅放行 VPC 网段和管理员 IP | private subnet + 堡垒机 / VPN / SSM 端口转发 | 避免为本地调试和数据导入增加固定成本与维护；风险与对策见下 |
 | API 运行形态 | ECS Fargate | EC2 自建集群；整个 API 部署在 Lambda 上 | 省去节点运维；常驻进程可复用 Redis 连接池，部署在 Lambda 上则需处理连接复用与冷启动 |
 | 库存判定 | Redis 负责实时判定，PostgreSQL 负责持久记录 | 只用数据库行锁 | 并发请求集中时，行锁会使请求排队并放大等待 |
 | 延迟任务 | Scheduler 的一次性调度 | 应用内定时器 | 精度到秒，执行后自动删除；应用内定时器在多实例下会重复执行 |
 | 认证 | Cognito | 自行签发 JWT | 密码散列、令牌签发、公钥轮换无需自己实现 |
 | CI/CD | GitHub Actions + OIDC | CodePipeline | 代码已在 GitHub；OIDC 免长期密钥 |
+
+**RDS 公网访问：成本与安全的权衡**
+
+- **为什么这样做**：`spinup.sh` 需要从本地用 psql 导入种子数据，开发和排错也要直连数据库。把 RDS 放进 private subnet，就得再增加 NAT Gateway（东京约 $45/月，当前月费约 $76）、VPN 或堡垒机，成本和维护量与 PoC 的规模不匹配。
+- **已采取的限制**：
+  - 安全组只放行 VPC 网段和管理员 IP
+  - 存储加密
+  - DB 密码不进代码仓库：`tfvars` 被排除，ECS 通过 Secrets Manager 注入
+  - 环境只在需要时存在：`spindown.sh` 会销毁 RDS，停机期间不存在对外可达的数据库
+- **残留风险**：数据库端口在公网可达，防护只有安全组和密码认证两层；管理员 IP 变化后，白名单要同步更新。
+- **生产环境的做法**：RDS 移到 private subnet 并启用 Multi-AZ；维护通过 SSM 端口转发、堡垒机或 VPN 进行；强制 TLS 连接；密码统一由 Secrets Manager 管理并轮换。
 
 ---
 

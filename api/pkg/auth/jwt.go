@@ -26,9 +26,13 @@ var jwks *keyfunc.JWKS
 // issuer はCognito User PoolのIssuer URLです
 var issuer string
 
+// audience はIDトークンの aud（app client id）です
+var audience string
+
 // InitJWKS はCognitoのJWKS公開鍵をキャッシュします
-func InitJWKS(region, userPoolID string) error {
+func InitJWKS(region, userPoolID, appClientID string) error {
 	issuer = fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s", region, userPoolID)
+	audience = appClientID
 	jwksURL := issuer + "/.well-known/jwks.json"
 
 	logger.Info("JWKSを初期化します", zap.String("url", jwksURL))
@@ -55,10 +59,16 @@ func VerifyToken(tokenString string) (*Claims, error) {
 	}
 
 	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, jwks.Keyfunc,
+	opts := []jwt.ParserOption{
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithIssuer(issuer),
-	)
+	}
+	// aud を検証しないと、同じ User Pool の別クライアント向けに発行された
+	// ID トークンでも通ってしまう。設定がある場合のみ有効にする
+	if audience != "" {
+		opts = append(opts, jwt.WithAudience(audience))
+	}
+	token, err := jwt.ParseWithClaims(tokenString, claims, jwks.Keyfunc, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("トークンの検証に失敗: %w", err)
 	}

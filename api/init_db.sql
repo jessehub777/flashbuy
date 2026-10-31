@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS flash_orders (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW ()
 );
 
+-- 同一ユーザーが同じ商品に「未払い」「支払済み」の注文を持てるのは 1 件だけ。
+-- キャンセル済みは対象外なので、期限切れで取り消されたあとは再購入できる。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_flash_orders_active
+  ON flash_orders (user_id, flash_id)
+  WHERE status IN ('UNPAID', 'PAID');
+
 CREATE TABLE IF NOT EXISTS lottery_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
   user_id UUID NOT NULL REFERENCES users (id),

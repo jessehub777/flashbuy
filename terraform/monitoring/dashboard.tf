@@ -148,6 +148,8 @@ resource "aws_cloudwatch_dashboard" "main" {
             aws_cloudwatch_metric_alarm.lottery_drawer_errors.arn,
             aws_cloudwatch_metric_alarm.lottery_drawer_throttles.arn,
             aws_cloudwatch_metric_alarm.order_expirer_errors.arn,
+            aws_cloudwatch_metric_alarm.order_expirer_throttles.arn,
+            aws_cloudwatch_metric_alarm.api_error_logs.arn,
           ]
         }
       },

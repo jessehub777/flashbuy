@@ -57,7 +57,7 @@ func main() {
 	}
 
 	// 6. JWKS（JWT検証用の公開鍵）の初期化
-	if err := auth.InitJWKS(cfg.Cognito.Region, cfg.Cognito.UserPoolID); err != nil {
+	if err := auth.InitJWKS(cfg.Cognito.Region, cfg.Cognito.UserPoolID, cfg.Cognito.AppClientID); err != nil {
 		logger.Fatal("JWKSの初期化に失敗しました", zap.Error(err))
 	}
 	defer auth.CloseJWKS()

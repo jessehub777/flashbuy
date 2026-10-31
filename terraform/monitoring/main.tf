@@ -32,6 +32,10 @@ data "aws_lambda_function" "lottery_drawer" {
   function_name = "${var.project_name}-lottery-drawer-${var.environment}"
 }
 
+data "aws_cloudwatch_log_group" "api" {
+  name = "/ecs/${var.project_name}-api-${var.environment}"
+}
+
 data "aws_lambda_function" "order_expirer" {
   function_name = "${var.project_name}-order-expirer-${var.environment}"
 }
@@ -307,6 +311,68 @@ resource "aws_cloudwatch_metric_alarm" "order_expirer_errors" {
   dimensions = {
     FunctionName = data.aws_lambda_function.order_expirer.function_name
   }
+
+  alarm_actions = local.alarm_actions
+}
+
+# ------------------------------------------------------------------------------
+# 期限切れ処理 Lambda のスロットリング
+#
+# reserved concurrency を 10 に絞っているため、期限切れが集中すると意図的に
+# スロットルされる。スロットルは Errors には計上されないので、別のアラームを持つ。
+# 取りこぼした分は Scheduler のリトライと毎分のスキャンで回収される
+# ------------------------------------------------------------------------------
+resource "aws_cloudwatch_metric_alarm" "order_expirer_throttles" {
+  alarm_name          = "${var.project_name}-order-expirer-throttles-${var.environment}"
+  alarm_description   = "期限切れ処理 Lambda がスロットリングされている（処理が遅延している可能性）"
+  namespace           = "AWS/Lambda"
+  metric_name         = "Throttles"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    FunctionName = data.aws_lambda_function.order_expirer.function_name
+  }
+
+  alarm_actions = local.alarm_actions
+}
+
+# ------------------------------------------------------------------------------
+# API のエラーログ
+#
+# この API は業務エラーも HTTP 200 で返すため、ALB の 5xx アラームでは
+# システムエラーを検知できない。アプリのエラーログをメトリクス化して拾う。
+# ログに code を出していないため、厳密には code=500 だけでなく 400 系の
+# パラメータエラーも含む（単発の誤操作で鳴らないようしきい値は 5 回/5 分）
+# ------------------------------------------------------------------------------
+resource "aws_cloudwatch_log_metric_filter" "api_error" {
+  name           = "${var.project_name}-api-error-${var.environment}"
+  log_group_name = data.aws_cloudwatch_log_group.api.name
+  pattern        = "{ $.level = \"error\" }"
+
+  metric_transformation {
+    name          = "ApiErrorLogs"
+    namespace     = "${var.project_name}/api"
+    value         = "1"
+    default_value = "0"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_error_logs" {
+  alarm_name          = "${var.project_name}-api-error-logs-${var.environment}"
+  alarm_description   = "API がエラーログを出している（業務エラーを含む）"
+  namespace           = "${var.project_name}/api"
+  metric_name         = "ApiErrorLogs"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 5
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
 
   alarm_actions = local.alarm_actions
 }

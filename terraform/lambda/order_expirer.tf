@@ -91,6 +91,12 @@ resource "aws_lambda_function" "order_expirer" {
   timeout     = 60
   memory_size = 256
 
+  # 期限切れが同一時刻に集中したとき、Lambda が一斉に起動して RDS の接続を
+  # 食い尽くすのを防ぐ。1 呼び出し = 1 接続（SetMaxOpenConns(1)）なので、
+  # API 側のプール 50 と合わせて max_connections 79 に収まる範囲に抑える。
+  # 上限を超えてスロットルされたイベントは、リトライと毎分のスキャンで回収される
+  reserved_concurrent_executions = 10
+
   # RDSとElastiCacheは同じVPC内のため、プライベートサブネットから到達できる
   vpc_config {
     subnet_ids         = data.terraform_remote_state.data.outputs.private_subnet_ids

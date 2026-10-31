@@ -13,6 +13,7 @@ import (
 	"flashbuy/api/pkg/scheduler"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
@@ -117,14 +118,24 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 	).Scan(&orderID)
 	if err != nil {
 		tx.Rollback()
-		logger.Error("注文の作成に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
 		_ = cache.IncrStock(req.SaleID) // ロックを戻す
+		// 同一ユーザー・同一商品に未払い／支払済みの注文が残っている場合、
+		// 部分ユニークインデックス（SQLSTATE 23505）でここに来る
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			logger.Warn("すでに購入済みのため注文を作成しませんでした",
+				zap.String("saleId", req.SaleID), zap.String("userId", userID))
+			response.Error(c, response.CodeAlreadyBought)
+			return
+		}
+		logger.Error("注文の作成に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
 		response.Error(c, response.CodeSystemError)
 		return
 	}
 
-	// DBの在庫を1減らす（在庫ロック済みなので必ず成功するはず）
-	_, err = tx.Exec(
+	// DBの在庫を1減らす。Redisの在庫がDBより多い（両者がずれている）場合に
+	// 売り越さないよう、更新行数が0ならトランザクションごと取り消して在庫を戻す
+	res, err := tx.Exec(
 		"UPDATE flash_items SET stock = stock - 1 WHERE id = $1 AND stock > 0", req.SaleID,
 	)
 	if err != nil {
@@ -132,6 +143,13 @@ func (h *FlashController) BuyFlash(c *gin.Context) {
 		logger.Error("DB在庫の更新に失敗しました", zap.String("saleId", req.SaleID), zap.Error(err))
 		_ = cache.IncrStock(req.SaleID) // ロックを戻す
 		response.Error(c, response.CodeSystemError)
+		return
+	}
+	if affected, aerr := res.RowsAffected(); aerr == nil && affected == 0 {
+		tx.Rollback()
+		_ = cache.IncrStock(req.SaleID) // ロックを戻す
+		logger.Warn("DBの在庫が不足しているため購入を中止しました", zap.String("saleId", req.SaleID))
+		response.Error(c, response.CodeOutOfStock)
 		return
 	}
 

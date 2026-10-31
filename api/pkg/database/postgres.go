@@ -32,8 +32,13 @@ func InitDB(cfg *config.DatabaseConfig) error {
 	}
 
 	// コネクションプールの設定（パフォーマンス最適化）
-	db.SetMaxIdleConns(10)           // アイドル状態の最大コネクション数
-	db.SetMaxOpenConns(100)          // オープン可能な最大コネクション数
+	db.SetMaxIdleConns(10) // アイドル状態の最大コネクション数
+	// 上限はインスタンス側の受け入れ数より小さくする。db.t4g.micro の
+	// max_connections は 79 で、superuser と RDS の予約枠を除くと 70 前後しか
+	// 使えない。プールがそれを超えて接続を開くと、サーバー側で拒否されて
+	// 53300 になる（待たずに失敗する）。50 に抑えて、残りを注文期限切れ処理の
+	// Lambda に渡す。
+	db.SetMaxOpenConns(50)           // オープン可能な最大コネクション数
 	db.SetConnMaxLifetime(time.Hour) // コネクションの最大生存期間
 
 	// グローバル変数にセット

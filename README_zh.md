@@ -24,7 +24,34 @@ FlashBuy 是一个提供限量抢购与公平抽签两种服务的电商系统�
 
 ## 1. 架构与流程
 
-### 1.1 整体架构
+### 1.1 技术栈与目录结构
+
+| 类别 | 选型 |
+|---|---|
+| 前端 | React 19 / TypeScript / Vite / Tailwind CSS |
+| 后端 | Go 1.26 / Gin / sqlx / zap / viper |
+| 数据库与缓存 | PostgreSQL 15（RDS）、Redis 7.1（ElastiCache） |
+| 认证 | Amazon Cognito |
+| 计算 | ECS Fargate（ARM64）、Lambda（Go，ARM64） |
+| 调度 | EventBridge Scheduler / Rule |
+| 静态托管 | S3 + CloudFront |
+| IaC / CI/CD | Terraform、GitHub Actions（OIDC） |
+| 监控 | CloudWatch、SNS |
+
+
+```
+api/          Go API（ECS Fargate 运行）
+frontend/     前端
+lambdas/      order_expirer / lottery_drawer
+terraform/    9 个模块
+scripts/      spinup.sh / spindown.sh / 運用マニュアル.md（操作手册）
+.github/      7 条 workflow
+data_design.md  数据设计（类型 / 表结构 / 缓存 / 查询）
+```
+
+
+
+### 1.2 整体架构
 
 ```mermaid
 flowchart TB
@@ -47,7 +74,7 @@ flowchart TB
   L2 --> RD
 ```
 
-### 1.2 业务流程
+### 1.3 业务流程
 
 **限量抢购**
 
@@ -70,19 +97,6 @@ flowchart TB
 4. 超期未付款的订单由订单到期处理 Lambda 取消
 ```
 
-### 1.3 技术栈
-
-| 类别 | 选型 |
-|---|---|
-| 前端 | React 19 / TypeScript / Vite / Tailwind CSS |
-| 后端 | Go 1.26 / Gin / sqlx / zap / viper |
-| 数据库与缓存 | PostgreSQL 15（RDS）、Redis 7.1（ElastiCache） |
-| 认证 | Amazon Cognito |
-| 计算 | ECS Fargate（ARM64）、Lambda（Go，ARM64） |
-| 调度 | EventBridge Scheduler / Rule |
-| 静态托管 | S3 + CloudFront |
-| IaC / CI/CD | Terraform、GitHub Actions（OIDC） |
-| 监控 | CloudWatch、SNS |
 
 ---
 
@@ -147,7 +161,7 @@ flowchart TB
 | 抽签开奖 | 创建抽签时注册开奖时刻的调度，到时开奖 | 扫描开奖时间已过、仍有"报名中"记录的抽签 |
 
 - 两条路径调用同一个函数，以事件中的 `mode`（`cancel` / `draw` / `scan`）分流，`scan` 表示来自每分钟扫描的调用。路径 1 使处理及时，路径 2 回收路径 1 遗漏的任务（例如调度注册失败）。
-- 一次性调度需要在运行时按订单、按抽签创建，由具备出网能力的 API 调用 Scheduler；周期扫描是固定的批处理，由 Terraform 静态定义为 Rule，Lambda 无需出网。
+- 一次性调度需要在运行时按订单、按抽签创建，由具备互联网访问能力的 API 调用 Scheduler；周期扫描是固定的批处理，由 Terraform 静态定义为 Rule，Lambda 不需要访问互联网。
 
 ### 2.5 监控与告警
 
@@ -334,6 +348,59 @@ sequenceDiagram
 - 行锁用于避免并发开奖互相覆盖：没有行锁时，后到的一方会把先到者已判定的"落选"改回"待付款"，使中奖人数超出名额。
 - 重复报名由 `UNIQUE (user_id, lottery_id)` 约束保证，在数据库层面原子判定。
 
+### 4.4 压测
+
+k6 以 constant-arrival-rate 请求线上环境的 `POST /api/v1/flash/buy`，链路为 CloudFront → ALB → ECS Fargate（0.25 vCPU / 512 MB，1 个任务）→ RDS `db.t4g.micro` / ElastiCache。每个成功请求写一次库并注册一次 Scheduler 调度。
+
+**下单路径**（库存 100,000，单档 15–30 秒）
+
+| 目标到达率 | 实际吞吐 | p95 | 5xx | 未发出 |
+|---|---|---|---|---|
+| 50 req/s | 49.9 req/s | 49 ms | 0 | 0 |
+| 100 req/s | 99.9 req/s | 50 ms | 0 | 0 |
+| 120 req/s | 118.5 req/s | 56 ms | 0 | 0 |
+| 150 req/s | 138.9 req/s | 1.17 s | 0 | 17 |
+| 200 req/s | 84.7 req/s | 5.45 s | 0 | 473 |
+
+到 120 req/s 为止延迟稳定在 50 ms 上下，与 5 req/s 的冒烟值一致；这一段数据库几乎是空的，同一分钟里 RDS 的 CPU 在 10% 以下，连接十几条。150 req/s 能交付 138.9 req/s，中位数仍是 41 ms，但约一成的请求排到 1 秒以上；200 req/s 超过单个任务的处理能力，交付回落到 84.7 req/s，k6 丢掉 473 次发送机会。超过能力之后表现出来的是变慢和排队，没有 5xx——此时连接数最高 15 条，池上限 50 远未用满，瓶颈是那 0.25 vCPU。
+
+**连接池与实例上限**
+
+第一版代码的池上限是 100（`pkg/database/postgres.go`），同一套压测在 150 req/s 就出现 239 个 500：
+
+```
+pq: remaining connection slots are reserved for non-replication superuser and rds_reserved connections
+```
+
+实例的 `max_connections` 是 79，扣掉 superuser 与 RDS 保留槽后能用的约 65。池被允许开到 100，超出的连接由服务端拒绝，而且是直接失败、不排队。负载越高在途请求越多，池越容易顶到 100，失败又拉长延迟，形成正反馈。采样 `pg_stat_activity` 还能看到 `wait_event_type=Lock` 的会话——所有事务都对 `flash_items` 的同一行执行 `stock = stock - 1`，行锁把提交串行化，进一步延长每个事务占着连接的时间。
+
+上限改成 50 后重测：150 req/s 的 5xx 从 239 降到 0，交付吞吐 112.3 → 138.9 req/s，p95 3.96 s → 1.17 s。取 50 而不是 79，是给订单到期处理的 Lambda 留余量——那批函数在 15 分钟到期点上会同时起来几百个，每个都要连库。
+
+**超卖**（库存 200，100 req/s 打 15 秒，共 1,501 次请求）
+
+| 项目 | 结果 |
+|---|---|
+| 成功下单 | 200 |
+| 返回 `10001` | 1,301 |
+| `oversell_check` | PASS（`0 + 200 = 200`） |
+| p95 | 39 ms |
+
+库存 2 秒内售罄。之后每个请求只做一次 Redis 的 Lua 判定就返回，p95 从 50 ms 降到 39 ms——这是成功路径不再执行，不是性能提升。
+
+上面是匀速铺开的请求，另外单独测了同一瞬间并发（所有请求同时发出）：20 个请求抢 10 件，10 成功、10 售罄；100 个请求抢 50 件、200 个请求抢 100 件，成功数都正好等于库存，0 错误，p95 分别是 0.89 s 和 1.17 s。请求多于连接时会先在应用侧排队，不会再变成 500。
+
+**数据一致性**
+
+改池之前那一轮累计写入 10,714 单。同一轮里约 950 次请求返回 500。结束后 `stock 89,286 + held 10,714 = total_stock 100,000`，Redis 上的 `stock` 与数据库一致，说明事务失败后回补 Redis 的路径没有留下偏差。改池之后又跑了 10,306 单，同样对得上（`89,694 + 10,306 = 100,000`），这一轮没有出现 5xx。
+
+**读路径**
+
+`/home/top10`、`/flash/list`、`/flash/getFlashById/:id`、`/search` 按 30 / 30 / 30 / 10 混合，100 req/s 打 15 秒：1,501 次请求全部成功，p95 30 ms。详情接口每次都会更新 `view_count`，与下单的库存更新落在同一行。
+
+**局限**
+
+单一任务、单 AZ 的 RDS、单节点 Redis，上面的数字只对当前规格成立，扩任务数或换实例规格都要重测。每次下单都会同步调用一次 Scheduler，50 ms 的基线里它占多少没有单独测量——本地没有 Scheduler 配置，没有可用的对照。
+
 ---
 
 ## 5. 排查记录
@@ -377,18 +444,17 @@ sequenceDiagram
 
 ### 6.3 已知限制与待办
 
-| 事项 | 优先级 | 现状与下一步 |
+| 事项 | 优先级 | 现状与下一步（费用为东京区域的月额概算） |
 |---|---|---|
-| 压测尚未实施 | 高 | 抢购链路的并发上限与超卖验证数据待补，计划压测库存扣减与下单事务 |
-| 中奖名额逾期后不递补 | 高 | 中奖者逾期未付只改成 `CANCELLED`，空出的名额未设置递补机制 |
-| 抽签只支持 0 报名费 | 高 | 报名不产生支付 |
-| HTTPS 与自定义域名 | 中 | 仅 HTTP:80 回源，使用 CloudFront 默认证书。补充 ACM、Route 53 与 ALB 443 监听 |
-| 网络与密钥 | 中 | 无 NAT / Endpoint，Lambda 的 DB 密码为环境变量。具备网络条件后统一使用 Secrets Manager |
-| 规格与环境 | 中 | ECS 单任务、RDS 单 AZ、Redis 单节点；后端只有一套环境，prod 环境的前端同样指向 dev 的 ALB |
-| 可靠性 | 中 | `/ping` 不检查数据库与 Redis，依赖故障时 ALB 不会摘除任务；HTTP server 未设读写超时 |
-| 限流与注册验证 | 中 | 登录、下单、报名没有频率限制；注册跳过邮件验证 |
-| 业务指标监控 | 中 | 目前只有基础设施指标。计划用 EMF 产出下单成功与售罄次数、报名与中签数等业务指标 |
-| 开奖通知 | 低 | 开奖后发布 SNS 事件，但 Lambda 位于无出网的子网，请求无法到达 SNS，主题也暂无订阅者。具备网络条件后接入邮件或推送 |
+| 开奖通知 | 高 | 现状：开奖成功后要向 SNS 发布结果，但 Lambda 位于无法访问互联网的私有子网，调用会一直等到 3 秒超时才放弃，之后只记录一条 warn。这类失败不计入 Lambda 的 Errors，告警不会触发。<br>下一步：给 SNS 加 interface VPC Endpoint，两个可用区约 $14/月（NAT 约 $45/月），并给主题加订阅 |
+| 网络与密钥 | 高 | 现状：因为既没有 NAT Gateway 也没有 VPC Endpoint，Lambda 调不到任何 AWS API，DB 密码也只能通过环境变量传入。<br>下一步：补 SNS 与 Secrets Manager 的 endpoint，约 $29/月（NAT 约 $45/月），密码改回 Secrets Manager（$0.40/个/月） |
+| 中奖名额逾期后不递补 | 高 | 现状：中奖者逾期未付改成 `CANCELLED`，空出的名额不分配。<br>下一步：按开奖时记录名次，取消时顺延给下一位并重新计算支付期限 |
+| HTTPS 与自定义域名 | 中 | 现状：对外用 CloudFront 的默认证书提供 HTTPS，回源到 ALB 走 HTTP:80，也没有绑定自定义域名。<br>下一步：ACM 证书加 Route 53（托管区 $0.5/月，域名年费 $12–15），ALB 加 443 监听 |
+| 规格与环境 | 中 | 现状：后端每个组件都只有一份，ECS 单任务、RDS 单 AZ、Redis 单节点。压测实测下单上限约 130–140 req/s，prod 的前端也指向 dev 的 ALB。<br>下一步：扩容每个任务约 $11/月；prod 分出独立后端 |
+| 可靠性 | 中 | 现状：`/ping` 只探进程存活，依赖故障时 ALB 不摘除任务。<br>下一步：加 `/ready` 探依赖，`/ping` 留给 ALB——单任务下并入健康检查会摘掉唯一目标 |
+| 限流与注册验证 | 中 | 现状：登录、下单、报名没有频率限制；注册跳过邮件验证。<br>下一步：加 IP 与用户维度的令牌桶；邮件验证切到 Cognito 流程，注意演示账号依赖直接确认 |
+| 业务指标监控 | 中 | 现状：只有基础设施指标。<br>下一步：用 EMF 输出下单成功、售罄、报名、中签数，接到现有 Dashboard（自定义指标 $0.3/个，5 个约 $1.5/月） |
+| 抽签只支持免费报名 | 中 | 现状：报名只往 `lottery_orders` 写一条记录，不涉及支付；中奖后的付款是模拟支付。<br>下一步：不做，落选退款与对账超出 PoC 范围 |
 
 ### 6.4 开发体制
 
@@ -405,17 +471,6 @@ cd ../frontend && pnpm install && pnpm dev     # 前端 :5173
 
 `APP_ENV` 默认为 `dev`（读取面向云端 RDS 的配置），本地运行需显式指定 `APP_ENV=local`；`init_db.sql` 含 `TRUNCATE`，连接云端 RDS 时请勿执行；本地运行需要 AWS 凭证，注册 / 登录会访问真实的 Cognito。云环境使用 `scripts/spinup.sh` 创建。
 
-### 6.6 目录结构
-
-```
-api/          Go API（ECS Fargate 运行）
-frontend/     前端
-lambdas/      order_expirer / lottery_drawer
-terraform/    9 个模块
-scripts/      spinup.sh / spindown.sh / 運用マニュアル.md（操作手册）
-.github/      7 条 workflow
-data_design.md  数据设计（类型 / 表结构 / 缓存 / 查询）
-```
 
 ## 7. License
 

@@ -85,9 +85,21 @@ func main() {
 	r := router.SetupRouter(cfg.App.Env, cognitoClient)
 
 	// サーバーインスタンスの作成
+	// タイムアウトを省略するとゼロ値（無制限）になり、接続を開いたまま何も送らない
+	// クライアントにソケットを占有され続ける。ALB のアイドルタイムアウトは 60 秒なので、
+	// それより短い値で先に切る。
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
 		Handler: r,
+		// ヘッダー受信まで。Slowloris 対策の本体
+		ReadHeaderTimeout: 5 * time.Second,
+		// リクエスト全体の読み取り。ボディは小さい JSON しか受けない
+		ReadTimeout: 15 * time.Second,
+		// レスポンス書き込み。最も遅い経路（購入：DB トランザクション + Scheduler 呼び出し）で
+		// 1 秒未満なので、30 秒あれば詰まっても確実に切れる
+		WriteTimeout: 30 * time.Second,
+		// keep-alive の維持時間
+		IdleTimeout: 60 * time.Second,
 	}
 
 	// 6. サーバーの起動とグレースフルシャットダウンの設定

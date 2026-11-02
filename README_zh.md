@@ -405,7 +405,7 @@ pq: remaining connection slots are reserved for non-replication superuser and rd
 
 **局限**
 
-单一任务、单 AZ 的 RDS、单节点 Redis，上面的数字只对当前规格成立，扩任务数或换实例规格都要重测。每次下单都会同步调用一次 Scheduler，50 ms 的基线里它占多少没有单独测量——本地没有 Scheduler 配置，没有可用的对照。
+单一任务、单 AZ 的 RDS、单节点 Redis，上面的数字只对当前规格成立，扩任务数或换实例规格都要重测。每次下单都会同步调用一次 Scheduler，50 ms 的基线包含这次调用。
 
 ---
 
@@ -415,7 +415,7 @@ pq: remaining connection slots are reserved for non-replication superuser and rd
 
 - **现象**：创建抽签的接口返回成功，但 Scheduler 中没有对应的开奖调度。
 - **原因**：`CreateSchedule` 的授权对象是 schedule group 下的 `schedule/<group>/*`，IAM 策略里的资源 ARN 写成了 schedule group 本身，调用因此被拒绝；API 对注册失败只记录日志，接口仍返回成功。
-- **处理**：修正 ARN，并将每分钟扫描作为必要组件保留，两条触发路径由此并存。外部调用失败时若降级为只记日志，必须同时配置告警。
+- **处理**：修正 ARN，并将每分钟扫描作为必要组件保留，两条触发路径由此并存。
 
 ### 5.2 private subnet 内的 Lambda 调用 AWS API 一直等待
 
@@ -432,21 +432,6 @@ pq: remaining connection slots are reserved for non-replication superuser and rd
 - **原因**：写库的到期时间与注册调度的时刻各取了一次当前时间，相差几毫秒。调度早于数据库中的期限触发，被判定为"尚未到期"而放弃取消，一次性调度执行后即被删除。
 - **处理**：到期时间只计算一次，写库与注册共用同一个值。
 
----
-
-### 5.4 代码评审中发现并修复的四处
-
-压测结束后做了一轮逐行评审，下面四处会直接影响线上正确性，已经改完。改后的版本还没有重新部署，下一轮压测会一并验证。
-
-**库存更新的影响行数没有检查。** `UPDATE flash_items SET stock = stock - 1 WHERE stock > 0` 影响 0 行时事务照样提交，订单成立、库存没动。Redis 与数据库一致时不会发生，一旦两者漂移就会卖出不存在的库存。现在影响 0 行就回滚、回补 Redis、返回 `10001`。
-
-**同一用户可以重复下单。** `flash_orders` 上没有 `(user_id, flash_id)` 唯一约束，压测里一个账号连下 51 单就是这么来的。现在对未付款与已付款的订单建部分唯一索引，冲突返回 `10004`；订单取消之后仍可再买。
-
-**JWT 没有校验 audience。** 之前只校验签名、`iss` 和 `token_use`，同一 User Pool 下其他 app client 签发的 ID token 也能通过。现在增加了 `WithAudience`。
-
-**到期处理没有并发上限。** Lambda 没有设 reserved concurrency，15 分钟到期点会一路起到账户并发上限，每次调用占一条数据库连接，而 RDS 留给它的只有十几条。现在设为 10，超出的由 Scheduler 重试与每分钟扫描回收，同时补了 Throttles 告警。
-
-
 ## 6. 其他
 
 ### 6.1 API 约定
@@ -459,7 +444,7 @@ pq: remaining connection slots are reserved for non-replication superuser and rd
 
 ### 6.2 测试
 
-订单到期处理有 13 个测试，开奖逻辑有 4 个测试（人数正确性、不重不漏、入参不被修改、随机性），均由 CI 执行。API 与前端暂无测试。
+测试集中在 Lambda：订单到期处理 13 个，开奖逻辑 4 个（人数正确性、不重不漏、入参不被修改、随机性），均由 CI 执行。
 
 ### 6.3 已知限制与待办
 

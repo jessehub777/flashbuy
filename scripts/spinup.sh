@@ -14,14 +14,16 @@
 #     ↓
 #   compute（全体）          ALB + ECS サービス
 #     ↓
-#   DB に api/init_db.sql を流す（テーブル作成 + シードデータ）
-#     ↓
 #   frontend                compute の alb_dns_name を origin に使う
+#     ↓
+#   DB に api/init_db.sql を流す（VPC 内の使い捨て Fargate タスク。SQL は frontend の S3 経由）
 #     ↓
 #   monitoring              data source で ALB/RDS/Redis/Lambda を名前引き
 #
 # 注意:
 #   - ALB を作り直すと DNS 名が変わる。frontend を apply し直すのはそのため。
+#   - RDS はプライベートサブネットにあり、手元から psql では届かない。
+#     DB 初期化は scripts/db-run.sh が ECS 上で実行する。
 #   - RDS は作り直しなので init_db.sql の再投入が必須。
 #   - シードデータはすべて NOW() 基準なので、いつ実行しても有効な期間になる。
 #
@@ -87,24 +89,13 @@ log "対象の AWS アカウント"
 aws sts get-caller-identity --query 'Account' --output text
 
 # ------------------------------------------------------------------------------
-# 1. allowed_admin_cidrs の確認
+# 1. DB 初期化の方式
 #
-# RDS / Redis の SG は開発端末のグローバルIP（/32）だけを許可している。
-# IP が変わっていると、下の init_db.sql 投入（ローカルから psql）が接続できない。
+# RDS はプライベートサブネットに配置しているため、開発端末から psql では接続できない。
+# 初期化は VPC 内で使い捨ての Fargate タスクを起動して実行する（scripts/db-run.sh）。
+# そのため allowed_admin_cidrs と現在のグローバルIP の突き合わせは不要。
 # ------------------------------------------------------------------------------
-log "グローバルIP と allowed_admin_cidrs の整合を確認"
-MY_IP="$(curl -fsS --noproxy '*' --max-time 10 https://checkip.amazonaws.com 2>/dev/null | tr -d '\n' || true)"
-if [[ -z "$MY_IP" ]]; then
-  warn "グローバルIP を取得できませんでした（スキップ）"
-elif grep -qF "$MY_IP" "$TF/data/terraform.tfvars"; then
-  ok "現在のIP $MY_IP は allowed_admin_cidrs に含まれています"
-else
-  warn "現在のIP $MY_IP が terraform/data/terraform.tfvars の allowed_admin_cidrs にありません"
-  warn "このままだと手元から RDS に接続できず、DB の初期化ができません。"
-  warn "  allowed_admin_cidrs = [\"$MY_IP/32\"]  ← のように追記してください"
-  read -r -p "  修正せずこのまま続行しますか? (y/N): " A || die "入力を受け取れませんでした"
-  [[ "$A" == "y" ]] || die "中止しました（tfvars を直してから再実行してください）"
-fi
+log "DB 初期化は VPC 内の Fargate タスクで実行します（手元からの psql 接続は不可）"
 
 # ------------------------------------------------------------------------------
 # 2. Lambda の zip を作る
@@ -176,36 +167,10 @@ fi
 ok "ECS サービスが安定しました"
 
 # ------------------------------------------------------------------------------
-# 8. DB を初期化する（テーブル作成 + シードデータ）
+# 8. frontend（ALB を作り直すと DNS 名が変わるので origin を貼り直す）
 #
-# RDS は作り直したので中身は空。api/init_db.sql がテーブル作成から
-# シード投入まで全部やる（中に TRUNCATE があるので再実行しても同じ結果になる）。
-#
-# psql が無い環境向けに docker の postgres イメージで代用する。
-# ------------------------------------------------------------------------------
-log "DB を初期化します（api/init_db.sql）"
-DB_HOST="$(tf data output -raw rds_host)"
-DB_PORT="$(tf data output -raw rds_port)"
-DB_NAME="$(tf data output -raw db_name)"
-DB_USER="$(tf data output -raw db_username)"
-DB_PASS="$(grep -E '^[[:space:]]*db_password' "$TF/data/terraform.tfvars" | head -1 | sed -E 's/.*"([^"]*)".*/\1/')"
-
-[[ -n "$DB_PASS" ]] || die "terraform/data/terraform.tfvars から db_password を読めませんでした"
-printf '  %s@%s:%s/%s\n' "$DB_USER" "$DB_HOST" "$DB_PORT" "$DB_NAME"
-
-if command -v psql >/dev/null; then
-  PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-    -v ON_ERROR_STOP=1 -f "$ROOT/api/init_db.sql"
-else
-  warn "psql が無いため docker 経由で流します"
-  docker run --rm -i -e PGPASSWORD="$DB_PASS" postgres:15-alpine \
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -f - \
-    < "$ROOT/api/init_db.sql"
-fi
-ok "DB を初期化しました"
-
-# ------------------------------------------------------------------------------
-# 9. frontend（ALB を作り直すと DNS 名が変わるので origin を貼り直す）
+# DB 初期化より先に実行する。DB 初期化は SQL を S3 経由で渡すため、
+# このモジュールが作るバケットが必要になる。
 # ------------------------------------------------------------------------------
 log "apply: frontend（CloudFront の /api/* origin を新しい ALB に向ける）"
 
@@ -240,6 +205,27 @@ aws s3 cp "$ROOT/frontend/dist/index.html" "s3://$BUCKET/index.html" --cache-con
 aws s3 sync "$ROOT/frontend/dist" "s3://$BUCKET" --delete --exclude "index.html"
 aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/index.html" >/dev/null
 ok "フロントをデプロイしました"
+
+# ------------------------------------------------------------------------------
+# 9. DB を初期化する（テーブル作成 + シードデータ）
+#
+# RDS は作り直したので中身は空。api/init_db.sql がテーブル作成から
+# シード投入まで全部やる（中に TRUNCATE があるので再実行しても同じ結果になる）。
+#
+# プライベートサブネットのため手元から psql では届かない。VPC 内に使い捨ての
+# Fargate タスクを起動し、S3 経由で SQL を渡して実行する（scripts/db-run.sh）。
+# そのバケットは上の frontend が作るため、この順序になっている。
+# ------------------------------------------------------------------------------
+log "DB を初期化します（api/init_db.sql）"
+DB_HOST="$(tf data output -raw rds_host)"
+DB_PORT="$(tf data output -raw rds_port)"
+DB_NAME="$(tf data output -raw db_name)"
+DB_USER="$(tf data output -raw db_username)"
+
+printf '  %s@%s:%s/%s（VPC 内の Fargate タスクから実行）\n' "$DB_USER" "$DB_HOST" "$DB_PORT" "$DB_NAME"
+
+bash "$ROOT/scripts/db-run.sh" "$ROOT/api/init_db.sql"
+ok "DB を初期化しました"
 
 # ------------------------------------------------------------------------------
 # 10. monitoring（ALB/RDS/Redis/Lambda を名前引きするので最後）
@@ -316,7 +302,8 @@ cat <<EOS
   S3      : s3://$BUCKET
   Login   : admin@flashbuy.demo / user@flashbuy.demo（パスワード Demo1234!）
 
-api/config-dev.yaml（ローカルから API を起動する場合）に転記する値:
+RDS はプライベートサブネットに配置したため、手元の PC からは直接接続できません。
+api/config-dev.yaml に転記する値（VPC 内から API を起動する場合）:
   database.host  = $DB_HOST
   redis.host     = $(tf data output -raw redis_host)
 

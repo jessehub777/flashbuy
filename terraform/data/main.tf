@@ -87,21 +87,10 @@ resource "aws_route_table_association" "public" {
 # RDS (PostgreSQL 5432)
 resource "aws_security_group" "rds" {
   name        = "${var.project_name}-rds-${var.environment}"
-  description = "RDS PostgreSQL access"
+  description = "RDS PostgreSQL access (Private Subnet isolation)"
   vpc_id      = aws_vpc.main.id
 
-  # 開発者端末からの直接接続（ローカル開発用）
-  dynamic "ingress" {
-    for_each = var.allowed_admin_cidrs
-    content {
-      from_port   = 5432
-      to_port     = 5432
-      protocol    = "tcp"
-      cidr_blocks = [ingress.value]
-    }
-  }
-
-  # 同一VPC内（ECS等）からの接続
+  # 同一VPC内（ECS・Lambda等）からの接続のみを許可
   ingress {
     from_port   = 5432
     to_port     = 5432
@@ -165,10 +154,8 @@ resource "aws_security_group" "redis" {
 # ==============================================================================
 resource "aws_db_subnet_group" "main" {
   name = "${var.project_name}-db-subnet-${var.environment}"
-  # 開発フェーズ: ローカルから直接接続するため公表サブネットに配置する。
-  # 接続は SG の allowed_admin_cidrs（開発端末IP）で制限する。
-  # 本番運用時は private サブネット + NAT に変更し、ECSからのみ接続する。
-  subnet_ids = aws_subnet.public[*].id
+  # セキュリティベストプラクティスに基づき、プライベートサブネットに完全に隔離配置
+  subnet_ids = aws_subnet.private[*].id
 
   tags = {
     Name        = "${var.project_name}-db-subnet-group-${var.environment}"
@@ -198,11 +185,8 @@ resource "aws_db_instance" "postgres" {
 
   # PoC / 実務派: 単一AZ（Multi-AZはコスト増のため本番検討時に有効化）
   multi_az = false
-  # ローカル開発から直接接続するため公開エンドポイントを付与する。
-  # 公表サブネット + IGW 経由で外部到達可能になる。
-  # 接続は SG で allowed_admin_cidrs（開発端末のIP）に制限する。
-  # 本番運用時は publicly_accessible = false + 私有サブネットにしてECSからのみ接続する。
-  publicly_accessible = true
+  # プライベートサブネット配置のため公開エンドポイントは付与しない（非公開）
+  publicly_accessible = false
 
   # 無料枠の制限: バックアップ保持は最大1日（7日にするとFreeTierRestrictionErrorになる）
   backup_retention_period = 1
